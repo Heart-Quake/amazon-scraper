@@ -25,6 +25,9 @@ st.caption("Utilisez avec modération et respect des CGU Amazon.")
 
 setup_logging("INFO")
 
+# Détection simple du runtime Cloud (pas d'affichage disponible)
+IS_CLOUD = bool(os.environ.get("STREAMLIT_RUNTIME") or os.environ.get("STREAMLIT_SERVER_PORT"))
+
 # Installation Playwright browsers (Chromium) à chaque démarrage (idempotent)
 # Utilise le bon interpréteur pour éviter les problèmes de venv
 try:
@@ -390,71 +393,113 @@ with tab3:
     else:
         st.info("Aucune session enregistrée.")
 
-    if st.button("Ouvrir la fenêtre de connexion Amazon", help="Lancer une fenêtre contrôlée pour se connecter à Amazon."):
-        with st.spinner("Ouverture de la fenêtre de connexion..."):
-            old = settings.headless
-            settings.headless = False
-            async def run_login(timeout_sec: int = 600) -> bool:
-                fetcher = AmazonFetcher()
-                await fetcher.start_browser()
-                context = await fetcher.create_context()
-                page = await context.new_page()
-                # Accueil FR puis navigation via header
-                await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=settings.timeout_ms)
-                try:
-                    for sel in [
-                        'input#sp-cc-accept',
-                        'input[data-cel-widget="sp-cc-accept"]',
-                        'input[name="accept"]',
-                    ]:
-                        btn = await page.query_selector(sel)
-                        if btn:
-                            await btn.click()
-                            break
-                except Exception:
-                    pass
-                try:
-                    acc = await page.wait_for_selector('#nav-link-accountList', timeout=8000)
-                    await acc.click()
-                    await page.wait_for_load_state("domcontentloaded")
-                except Exception:
-                    signin_url = (
-                        "https://www.amazon.fr/ap/signin?_encoding=UTF8"
-                        "&openid.assoc_handle=frflex"
-                        "&openid.return_to=https%3A%2F%2Fwww.amazon.fr%2F%3Fref_%3Dnav_signin"
-                        "&openid.mode=checkid_setup&ignoreAuthState=1"
-                        "&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0"
-                        "&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select"
-                        "&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select"
-                    )
-                    await page.goto(signin_url, wait_until="domcontentloaded", timeout=settings.timeout_ms)
-                import time as _t
-                start = _t.time()
-                logged = False
-                while _t.time() - start < timeout_sec:
+    # Mode Cloud: proposer une connexion headless via formulaire (pas de fenêtre graphique)
+    st.markdown("---")
+    st.caption("Connexion headless (compatible Cloud)")
+    colx, coly = st.columns(2)
+    with colx:
+        email_input = st.text_input("Email Amazon", value="", placeholder="prenom.nom@mail.com")
+    with coly:
+        password_input = st.text_input("Mot de passe Amazon", value="", type="password")
+    do_headless_login = st.button("Se connecter (headless)", help="Tentative de connexion en arrière-plan, sans fenêtre graphique.")
+
+    if do_headless_login:
+        if not email_input or not password_input:
+            st.error("Renseignez email et mot de passe.")
+        else:
+            with st.spinner("Connexion en cours…"):
+                async def run_headless_login(timeout_sec: int = 300) -> bool:
+                    # Forcer headless en Cloud
+                    old = settings.headless
                     try:
-                        content = await page.content()
-                        if not detect_login_page(content):
-                            acc = await page.query_selector('#nav-link-accountList')
-                            if acc:
-                                txt = (await acc.inner_text()) or ""
-                                if "Identifiez-vous" not in txt:
-                                    logged = True
+                        settings.headless = True
+                        fetcher = AmazonFetcher()
+                        await fetcher.start_browser()
+                        context = await fetcher.create_context()
+                        page = await context.new_page()
+                        signin_url = (
+                            "https://www.amazon.fr/ap/signin?_encoding=UTF8"
+                            "&openid.assoc_handle=frflex"
+                            "&openid.return_to=https%3A%2F%2Fwww.amazon.fr%2F%3Fref_%3Dnav_signin"
+                            "&openid.mode=checkid_setup&ignoreAuthState=1"
+                            "&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0"
+                            "&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select"
+                            "&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select"
+                        )
+                        await page.goto(signin_url, wait_until="domcontentloaded", timeout=settings.timeout_ms)
+                        try:
+                            # Cookies
+                            for sel in [
+                                'input#sp-cc-accept',
+                                'input[data-cel-widget="sp-cc-accept"]',
+                                'input[name="accept"]',
+                            ]:
+                                btn = await page.query_selector(sel)
+                                if btn:
+                                    await btn.click()
                                     break
-                        await page.wait_for_timeout(1500)
-                    except Exception:
-                        await page.wait_for_timeout(1500)
-                        continue
-                if logged:
-                    await context.storage_state(path=session_state_path)
-                await fetcher.stop_browser()
-                return logged
-            ok = asyncio.run(run_login())
-            settings.headless = old
-            if ok:
-                st.success(f"✓ Session enregistrée: {session_state_path}")
-            else:
-                st.error("Connexion non détectée dans le délai imparti.")
+                        except Exception:
+                            pass
+                        # Email -> Continuer
+                        try:
+                            await page.fill('#ap_email', email_input)
+                            cont = await page.query_selector('#continue')
+                            if cont:
+                                await cont.click()
+                                await page.wait_for_load_state("domcontentloaded")
+                        except Exception:
+                            pass
+                        # Password -> Sign in
+                        try:
+                            await page.fill('#ap_password', password_input)
+                            submit = await page.query_selector('#signInSubmit')
+                            if submit:
+                                await submit.click()
+                                await page.wait_for_load_state("domcontentloaded")
+                        except Exception:
+                            pass
+                        # Attente d'état connecté simple
+                        import time as _t
+                        start = _t.time()
+                        logged = False
+                        while _t.time() - start < timeout_sec:
+                            try:
+                                await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=settings.timeout_ms)
+                                acc = await page.query_selector('#nav-link-accountList')
+                                if acc:
+                                    txt = (await acc.inner_text()) or ""
+                                    if "Identifiez-vous" not in txt:
+                                        logged = True
+                                        break
+                                await page.wait_for_timeout(1500)
+                            except Exception:
+                                await page.wait_for_timeout(1500)
+                                continue
+                        if logged:
+                            await context.storage_state(path=session_state_path)
+                        await fetcher.stop_browser()
+                        settings.headless = old
+                        return logged
+                    finally:
+                        settings.headless = old
+
+                ok2 = asyncio.run(run_headless_login())
+                if ok2:
+                    st.success(f"✓ Session enregistrée: {session_state_path}")
+                else:
+                    st.error("Connexion non détectée (captcha/2FA possible). Réessayez ou uploadez un storage_state.")
+
+    st.markdown("---")
+    st.caption("Alternative: charger un fichier de session (storage_state.json)")
+    uploaded = st.file_uploader("Fichier storage_state.json", type=["json"], accept_multiple_files=False)
+    if uploaded is not None:
+        try:
+            data = uploaded.read()
+            with open(session_state_path, "wb") as fh:
+                fh.write(data)
+            st.success(f"✓ Session importée: {session_state_path}")
+        except Exception:
+            st.error("Import de session impossible.")
 
 with tab4:
     st.subheader("Guide d’utilisation")
