@@ -55,6 +55,8 @@ class AmazonScraper:
         
         max_pages = max_pages or settings.max_pages_per_asin
         total_reviews = 0
+        total_encountered = 0
+        total_duplicates = 0
         total_pages = 0
         errors = []
         pages_details = []
@@ -105,16 +107,39 @@ class AmazonScraper:
                         # Sauvegarde en base
                         saved_count = await self._save_reviews(reviews)
                         total_reviews += saved_count
+                        encountered = len(reviews)
+                        dups = max(0, encountered - saved_count)
+                        total_encountered += encountered
+                        total_duplicates += dups
                         total_pages = page_num
                         
                         logger.info(f"Page {page_num}: {len(reviews)} avis parsés, {saved_count} sauvegardés")
                         
                         # Passage à la page suivante en cliquant "Suivant" pour garder la session
                         has_next = await self._goto_next_page(page)
+                        if not has_next and page_num < max_pages:
+                            # Fallback: si le clic Next a échoué mais que la pagination n'est pas terminée,
+                            # on tente un chargement direct par URL de la page suivante.
+                            try:
+                                logger.info("Fallback pagination: chargement direct de la page suivante par URL")
+                                next_page = await self.fetcher.fetch_page(
+                                    asin,
+                                    page_num + 1,
+                                    domain=domain,
+                                    language=language,
+                                    sort=sort,
+                                    reviewer_type=reviewer_type,
+                                )
+                                if next_page:
+                                    page = next_page
+                                    has_next = True
+                            except Exception as e:
+                                logger.warning(f"Fallback direct page {page_num+1} échoué: {e}")
                         detail = {
                             "page": page_num,
-                            "reviews_parsed": len(reviews),
+                            "reviews_parsed": encountered,
                             "saved": saved_count,
+                            "duplicates": dups,
                             "duration_s": round(time.time() - started_at, 2),
                             "next": has_next,
                             "error": None,
@@ -143,6 +168,7 @@ class AmazonScraper:
                             "page": page_num,
                             "reviews_parsed": 0,
                             "saved": 0,
+                            "duplicates": 0,
                             "duration_s": round(time.time() - started_at, 2) if 'started_at' in locals() else None,
                             "next": False,
                             "error": str(e),
@@ -164,6 +190,8 @@ class AmazonScraper:
         stats = {
             "asin": asin,
             "total_reviews": total_reviews,
+            "total_encountered": total_encountered,
+            "total_duplicates": total_duplicates,
             "total_pages": total_pages,
             "errors": errors,
             "success": len(errors) == 0,

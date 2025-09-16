@@ -1,6 +1,15 @@
-2025/09/16-19:23:35.010 5f0b Reusing MANIFEST /Users/vincentflaceliere/Github/amazon-scraper/pw_profile/Default/Session Storage/MANIFEST-000001
-2025/09/16-19:23:35.010 5f0b Recovering log #17
-2025/09/16-19:23:35.011 5f0b Reusing old log /Users/vincentflaceliere/Github/amazon-scraper/pw_profile/Default/Session Storage/000017.log 
-2025/09/16-19:24:35.013 a903 Level-0 table #20: started
-2025/09/16-19:24:35.019 a903 Level-0 table #20: 26796 bytes OK
-2025/09/16-19:24:35.027 a903 Delete type=0 #17
+2025/09/16-19:40:28.985 6607 Reusing MANIFEST /Users/vincentflaceliere/Github/amazon-scraper/pw_profile/Default/Session Storage/MANIFEST-000001
+2025/09/16-19:40:28.985 6607 Recovering log #19
+2025/09/16-19:40:28.986 6607 Reusing old log /Users/vincentflaceliere/Github/amazon-scraper/pw_profile/Default/Session Storage/000019.log 
+2025/09/16-19:42:28.987 a903 Level-0 table #23: started
+2025/09/16-19:42:28.992 a903 Level-0 table #23: 36998 bytes OK
+2025/09/16-19:42:28.999 a903 Delete type=0 #19
+2025/09/16-19:42:29.000 a903 Compacting 4@0 + 1@1 files
+2025/09/16-19:42:29.005 a903 Generated table #24@0: 13 keys, 4299 bytes
+2025/09/16-19:42:29.005 a903 Compacted 4@0 + 1@1 files => 4299 bytes
+2025/09/16-19:42:29.012 a903 compacted to: files[ 0 1 0 0 0 0 0 ]
+2025/09/16-19:42:29.012 a903 Delete type=2 #15
+2025/09/16-19:42:29.012 a903 Delete type=2 #17
+2025/09/16-19:42:29.012 a903 Delete type=2 #13
+2025/09/16-19:42:29.012 a903 Delete type=2 #20
+2025/09/16-19:42:29.012 a903 Delete type=2 #23

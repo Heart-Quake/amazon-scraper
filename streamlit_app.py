@@ -162,7 +162,11 @@ with tab1:
                 pass
             # Affichage récapitulatif clair pour utilisateur novice
             st.markdown("### Résultat")
-            status_msg_ok = f"✅ Terminé: {stats.get('total_reviews',0)} avis sur {stats.get('total_pages',0)} pages"
+            status_msg_ok = (
+                f"✅ Terminé: {stats.get('total_reviews',0)} avis sauvegardés sur {stats.get('total_pages',0)} pages"
+                f" • {stats.get('total_encountered',0)} rencontrés"
+                f" • {stats.get('total_duplicates',0)} doublons"
+            )
             status_msg_warn = f"⚠ Terminé avec erreurs: {len(stats.get('errors', []))} erreurs"
             if stats.get("success"):
                 st.success(status_msg_ok)
@@ -220,7 +224,7 @@ with tab1:
                             return "Négatif"
                         return "Neutre"
                     st.markdown("#### Résultats et aperçu")
-                    tab_last, tab_preview = st.tabs(["Derniers 10", "Aperçu trié par sentiment"])
+                    tab_last, tab_preview = st.tabs(["Chronologique", "Aperçu trié par sentiment"])
 
                     # Vue 1: Derniers 10 avis (par date de création si dispo, sinon review_date)
                     with tab_last:
@@ -228,31 +232,30 @@ with tab1:
                         df_last = all_reviews.copy()
                         if sort_cols:
                             df_last = df_last.sort_values(sort_cols, ascending=[False] * len(sort_cols))
-                        df_last10 = df_last.head(10)
-                        cols_last = [c for c in ["review_id", "review_date", "rating", "review_title", "review_body", "reviewer_name", "variant"] if c in df_last10.columns]
-                        st.dataframe(df_last10[cols_last], use_container_width=True)
-                        # Exports spécifiques aux derniers 10
+                        cols_last = [c for c in ["review_id", "review_date", "rating", "review_title", "review_body", "reviewer_name", "variant"] if c in df_last.columns]
+                        st.dataframe(df_last[cols_last], use_container_width=True)
+                        # Exports de la vue chronologique complète
                         c1, c2 = st.columns(2)
                         with c1:
                             st.download_button(
-                                "CSV (derniers 10)",
-                                data=df_last10.to_csv(index=False).encode("utf-8"),
-                                file_name=f"reviews_last10_{asin}.csv",
+                                "CSV (chronologique)",
+                                data=df_last.to_csv(index=False).encode("utf-8"),
+                                file_name=f"reviews_chrono_{asin}.csv",
                                 mime="text/csv",
-                                key=f"dl_last10_csv_{asin}",
+                                key=f"dl_chrono_csv_{asin}",
                             )
                         with c2:
                             try:
                                 import io
                                 out = io.BytesIO()
                                 with pd.ExcelWriter(out, engine="openpyxl") as writer:
-                                    df_last10.to_excel(writer, index=False, sheet_name="last10")
+                                    df_last.to_excel(writer, index=False, sheet_name="chronologique")
                                 st.download_button(
-                                    "Excel (derniers 10)",
+                                    "Excel (chronologique)",
                                     data=out.getvalue(),
-                                    file_name=f"reviews_last10_{asin}.xlsx",
+                                    file_name=f"reviews_chrono_{asin}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    key=f"dl_last10_xlsx_{asin}",
+                                    key=f"dl_chrono_xlsx_{asin}",
                                 )
                             except Exception:
                                 pass
@@ -263,7 +266,7 @@ with tab1:
                         order = ["Positif", "Neutre", "Négatif"]
                         all_reviews["sentiment"] = pd.Categorical(all_reviews["sentiment"], categories=order, ordered=True)
                         df_preview = all_reviews.sort_values(["sentiment", "review_date"], ascending=[True, False])
-                        st.dataframe(df_preview.head(200), use_container_width=True)
+                        st.dataframe(df_preview, use_container_width=True)
 
                         col1, col2 = st.columns(2)
                         with col1:
