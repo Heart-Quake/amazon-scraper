@@ -1,0 +1,13 @@
+# ASINs de test pour le scraper Amazon
+# Ces ASINs sont utilisés pour les tests d'intégration
+# Remplacez par de vrais ASINs Amazon pour vos tests
+
+# Exemples d'ASINs (remplacez par de vrais ASINs)
+B08N5WRWNW
+B07FZ8S74R
+B08N5WRWNW
+B07FZ8S74R
+
+# Vous pouvez ajouter d'autres ASINs ici
+# B123456789
+# B987654321

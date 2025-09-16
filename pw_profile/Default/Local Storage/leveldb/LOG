@@ -1,0 +1,8 @@
+2025/09/16-19:23:34.516 5f0b Reusing MANIFEST /Users/vincentflaceliere/Github/amazon-scraper/pw_profile/Default/Local Storage/leveldb/MANIFEST-000001
+2025/09/16-19:23:34.529 5f0b Recovering log #4
+2025/09/16-19:23:34.531 5f0b Level-0 table #7: started
+2025/09/16-19:23:34.540 5f0b Level-0 table #7: 26960 bytes OK
+2025/09/16-19:23:34.540 5f0b Recovering log #7
+2025/09/16-19:23:34.540 5f0b Reusing old log /Users/vincentflaceliere/Github/amazon-scraper/pw_profile/Default/Local Storage/leveldb/000007.log 
+2025/09/16-19:23:34.549 5f0b Delete type=0 #4
+2025/09/16-19:23:34.549 5f0b Delete type=2 #8

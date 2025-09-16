@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Service principal du scraper
+  amazon-scraper:
+    build: .
+    container_name: amazon-scraper
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - DB_URL=postgresql+psycopg://scraper:scraper123@postgres:5432/amazon_reviews
+      - HEADLESS=true
+      - MAX_PAGES_PER_ASIN=5
+      - SLEEP_MIN=2.0
+      - SLEEP_MAX=4.0
+    depends_on:
+      - postgres
+    networks:
+      - scraper-network
+    restart: unless-stopped
+
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: amazon-scraper-postgres
+    environment:
+      - POSTGRES_DB=amazon_reviews
+      - POSTGRES_USER=scraper
+      - POSTGRES_PASSWORD=scraper123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - scraper-network
+    restart: unless-stopped
+
+  # Interface d'administration PostgreSQL
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: amazon-scraper-pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@scraper.com
+      - PGADMIN_DEFAULT_PASSWORD=admin123
+    ports:
+      - "8080:80"
+    depends_on:
+      - postgres
+    networks:
+      - scraper-network
+    restart: unless-stopped
+    profiles:
+      - admin
+
+volumes:
+  postgres_data:
+
+networks:
+  scraper-network:
+    driver: bridge

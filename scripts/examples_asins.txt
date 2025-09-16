@@ -1,0 +1,13 @@
+# Fichier d'exemple avec des ASINs Amazon
+# Un ASIN par ligne, les lignes commençant par # sont ignorées
+
+# Exemples d'ASINs (remplacez par de vrais ASINs)
+B08N5WRWNW
+B07FZ8S74R
+B08N5WRWNW
+B07FZ8S74R
+B08N5WRWNW
+
+# Vous pouvez ajouter d'autres ASINs ici
+# B123456789
+# B987654321
