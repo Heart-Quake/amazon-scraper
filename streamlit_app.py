@@ -531,6 +531,56 @@ with tab3:
                                 await page.wait_for_load_state("domcontentloaded")
                         except Exception:
                             pass
+                        # Tenter de forcer l'envoi d'un code OTP (SMS/Email)
+                        try:
+                            async def _trigger_otp_send() -> None:
+                                # Choix méthode SMS/Email si disponible
+                                for sel in [
+                                    'input[name="mfaDeliveryMethod"][value="sms"]',
+                                    'input[name="mfaDeliveryMethod"][value="voice"]',
+                                    'input[name="otpDeliveryOption"][value="sms"]',
+                                    '#sms_otpradio',
+                                ]:
+                                    el = await page.query_selector(sel)
+                                    if el:
+                                        try:
+                                            await el.check()
+                                        except Exception:
+                                            await el.click()
+                                        break
+                                # Liens pour basculer vers SMS/Email
+                                for lsel in [
+                                    'a#auth-use-text-messaging',
+                                    'a#auth-use-email',
+                                    'a[href*="use-text-messaging"]',
+                                    'a[href*="use-email"]',
+                                ]:
+                                    link = await page.query_selector(lsel)
+                                    if link:
+                                        await link.click()
+                                        await page.wait_for_load_state("domcontentloaded")
+                                        break
+                                # Boutons d'envoi
+                                for bsel in [
+                                    '#auth-send-code',
+                                    '#auth-send-otp',
+                                    'input#auth-send-code',
+                                    'input#auth-send-otp',
+                                    'input[name="sendCode"]',
+                                    'button#auth-send-code',
+                                    'button#auth-send-otp',
+                                ]:
+                                    btn = await page.query_selector(bsel)
+                                    if btn:
+                                        await btn.click()
+                                        try:
+                                            await page.wait_for_load_state("domcontentloaded")
+                                        except Exception:
+                                            pass
+                                        break
+                            await _trigger_otp_send()
+                        except Exception:
+                            pass
                         # OTP (2FA) si demandé
                         try:
                             otp_selectors = [
