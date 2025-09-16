@@ -36,6 +36,26 @@ try:
 except Exception:
     pass
 
+# Synchroniser explicitement les settings avec les secrets (évite le problème d'import avant injection)
+try:
+    if "AMZ_EMAIL" in st.secrets:
+        settings.amz_email = str(st.secrets["AMZ_EMAIL"])  # type: ignore[attr-defined]
+    if "AMZ_PASSWORD" in st.secrets:
+        settings.amz_password = str(st.secrets["AMZ_PASSWORD"])  # type: ignore[attr-defined]
+    if "HEADLESS" in st.secrets:
+        settings.headless = str(st.secrets["HEADLESS"]).strip().lower() in ("1", "true", "yes", "on")  # type: ignore[attr-defined]
+    if "USE_PERSISTENT_PROFILE" in st.secrets:
+        settings.use_persistent_profile = str(st.secrets["USE_PERSISTENT_PROFILE"]).strip().lower() in ("1", "true", "yes", "on")  # type: ignore[attr-defined]
+except Exception:
+    pass
+
+# En environnement Cloud, forcer headless pour éviter tout affichage graphique
+if IS_CLOUD:
+    try:
+        settings.headless = True  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 # Installation Playwright browsers (Chromium) à chaque démarrage (idempotent)
 # Utilise le bon interpréteur pour éviter les problèmes de venv
 try:

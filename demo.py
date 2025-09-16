@@ -5,11 +5,14 @@ Ce script montre comment utiliser le scraper de manière programmatique.
 """
 
 import asyncio
+import os
 import logging
 from pathlib import Path
 
 from app.scrape import AmazonScraper
 from app.utils import setup_logging
+from app.config import settings
+from app.fetch import AmazonFetcher
 
 # Configuration du logging
 setup_logging("INFO")
@@ -53,6 +56,59 @@ async def demo_single_asin():
         
     except Exception as e:
         print(f"❌ Erreur lors du scraping: {e}")
+
+
+async def ensure_amazon_session_for_demo() -> bool:
+    """Vérifie/obtient une session Amazon utilisable pour le scraping côté démo.
+
+    - Si un `storage_state.json` existe, on l'utilise tel quel.
+    - Sinon, si `AMZ_EMAIL` et `AMZ_PASSWORD` sont définis, tentative de connexion headless
+      et sauvegarde de l'état dans `settings.storage_state_path`.
+    - Retourne True si une session valide est détectée, False sinon.
+    """
+    print("\n🔐 Préparation de la session Amazon (démo)")
+    print("=" * 50)
+    storage_state_path = getattr(settings, "storage_state_path", "./storage_state.json")
+    if os.path.exists(storage_state_path):
+        print(f"✓ Session existante détectée: {storage_state_path}")
+        # Vérifier que la session est encore valide
+        fetcher = AmazonFetcher()
+        await fetcher.start_browser()
+        ctx = await fetcher.create_context()
+        ok = await fetcher.is_session_valid(ctx)
+        await ctx.close()
+        await fetcher.stop_browser()
+        if ok:
+            print("✓ Session valide")
+            return True
+        print("⚠️  Session existante invalide — tentative de reconnexion si identifiants fournis")
+
+    email = settings.amz_email
+    password = settings.amz_password
+    if not email or not password:
+        print("ℹ️  Identifiants Amazon non fournis (AMZ_EMAIL/AMZ_PASSWORD). Le scraping tentera sans login.")
+        return False
+
+    fetcher = AmazonFetcher()
+    # Forcer headless pour robustesse
+    try:
+        settings.headless = True
+    except Exception:
+        pass
+    await fetcher.start_browser()
+    ctx = await fetcher.create_context()
+    try:
+        await fetcher.ensure_logged_in(ctx)
+        ok = await fetcher.is_session_valid(ctx)
+        if ok:
+            await ctx.storage_state(path=storage_state_path)
+            print(f"✓ Session enregistrée: {storage_state_path}")
+            return True
+        print("❌ Connexion non détectée — captcha/2FA possible.")
+        return False
+    finally:
+        await ctx.close()
+        await fetcher.stop_browser()
 
 
 async def demo_batch_scraping():
@@ -186,6 +242,14 @@ async def main():
     
     # Vérification du système
     demo_health_check()
+    
+    # Préparer/valider la session Amazon pour fiabiliser les exemples
+    try:
+        ok_session = await ensure_amazon_session_for_demo()
+        if not ok_session:
+            print("ℹ️  Poursuite sans session authentifiée (accès limité aux contenus publics).")
+    except Exception as e:
+        print(f"⚠️  Préparation session ignorée: {e}")
     
     # Démonstrations
     await demo_single_asin()
