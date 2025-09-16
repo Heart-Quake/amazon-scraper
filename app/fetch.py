@@ -50,6 +50,14 @@ class AmazonFetcher:
                 "--disable-features=VizDisplayCompositor",
             ]
             
+            # Forcer headless en environnement Cloud (pas de serveur X)
+            import os
+            if os.environ.get("STREAMLIT_RUNTIME") or os.environ.get("STREAMLIT_SERVER_PORT"):
+                try:
+                    settings.headless = True
+                except Exception:
+                    pass
+
             if settings.use_persistent_profile:
                 import os
                 os.makedirs(settings.user_data_dir, exist_ok=True)

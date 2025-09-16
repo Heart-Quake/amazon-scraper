@@ -86,7 +86,21 @@ class AmazonScraper:
                             break
                         
                         # Parsing des avis
-                        reviews = await self.parser.parse_reviews_from_page(page)
+                        try:
+                            reviews = await self.parser.parse_reviews_from_page(page)
+                        except Exception as e:
+                            # Dump de debug si les sélecteurs ne matchent pas (anti-bot / layout nouveau)
+                            try:
+                                html = await page.content()
+                                with open("debug/last_page.html", "w", encoding="utf-8") as f:
+                                    f.write(html)
+                                try:
+                                    await page.screenshot(path="debug/last_page.png", full_page=True)
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+                            raise e
                         
                         if not reviews:
                             logger.info(f"Aucun avis trouvé sur la page {page_num}, arrêt de la pagination")
