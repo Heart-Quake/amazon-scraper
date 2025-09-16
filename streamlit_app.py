@@ -464,6 +464,7 @@ with tab3:
     with coly:
         password_input = st.text_input("Mot de passe Amazon", value="", type="password")
     otp_input = st.text_input("Code 2FA (si demandé)", value="", help="Laissez vide si Amazon ne le demande pas")
+    otp_trigger = st.checkbox("J'ai reçu un code 2FA", value=False, help="Cochez si un code vient d'être envoyé (email/sms/authenticator)")
     colh1, colh2 = st.columns([1,1])
     with colh1:
         do_headless_login = st.button("Se connecter (headless)", help="Tentative de connexion en arrière-plan, sans fenêtre graphique.")
@@ -480,7 +481,7 @@ with tab3:
             st.error("Renseignez email et mot de passe.")
         else:
             with st.spinner("Connexion en cours…"):
-                async def run_headless_login(timeout_sec: int = 120) -> bool:
+                async def run_headless_login(timeout_sec: int = 180) -> bool:
                     # Forcer headless en Cloud
                     old = settings.headless
                     try:
@@ -543,13 +544,17 @@ with tab3:
                                 otp_field = await page.query_selector(sel)
                                 if otp_field:
                                     break
-                            if otp_field:
-                                if not otp_input:
-                                    # Pas de code fourni par l'utilisateur
-                                    return False
+                            # Si l’UI indique qu’un code a été reçu mais aucun champ détecté, attendre et re-check
+                            if otp_trigger and not otp_field:
+                                await page.wait_for_timeout(4000)
+                                for sel in otp_selectors:
+                                    otp_field = await page.query_selector(sel)
+                                    if otp_field:
+                                        break
+                            if otp_field and otp_input:
                                 await otp_field.fill(otp_input)
                                 # Boutons possibles de validation
-                                for btn_sel in ['#auth-signin-button', 'input#continue', 'input[type="submit"]']:
+                                for btn_sel in ['#auth-signin-button', 'input#continue', 'input[type="submit"]', 'button[type="submit"]']:
                                     btn = await page.query_selector(btn_sel)
                                     if btn:
                                         await btn.click()
@@ -573,6 +578,14 @@ with tab3:
                                 # 3) Lien de déconnexion présent
                                 if await page.query_selector('#nav-item-signout, a[href*="/gp/flex/sign-out"]'):
                                     return True
+                                # 4) Accès à l’accueil sans redirection /ap/signin
+                                await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=settings.timeout_ms)
+                                if "/ap/signin" not in (page.url or ""):
+                                    acc2 = await page.query_selector('#nav-link-accountList')
+                                    if acc2:
+                                        t2 = (await acc2.inner_text()) or ""
+                                        if "Identifiez-vous" not in t2:
+                                            return True
                             except Exception:
                                 return False
                             return False
@@ -585,7 +598,7 @@ with tab3:
                             if await _is_logged_in():
                                 logged = True
                                 break
-                            await page.wait_for_timeout(1200)
+                            await page.wait_for_timeout(1500)
                         if logged:
                             await context.storage_state(path=session_state_path)
                         await fetcher.stop_browser()

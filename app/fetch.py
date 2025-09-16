@@ -261,6 +261,15 @@ class AmazonFetcher:
             if await page.query_selector('#nav-item-signout, a[href*="/gp/flex/sign-out"]'):
                 await page.close()
                 return True
+            # 4) Accès à la page d'accueil sans redirection vers Sign-In
+            await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=settings.timeout_ms)
+            if "/ap/signin" not in (page.url or ""):
+                acc2 = await page.query_selector('#nav-link-accountList')
+                if acc2:
+                    txt2 = (await acc2.inner_text()) or ""
+                    if "Identifiez-vous" not in txt2:
+                        await page.close()
+                        return True
             await page.close()
             return False
         except Exception as e:
