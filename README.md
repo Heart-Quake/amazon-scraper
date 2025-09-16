@@ -22,7 +22,7 @@ Un scraper d'avis Amazon robuste et configurable avec résilience, rotation de p
 
 - **Scraping robuste** : Gestion des erreurs, retry automatique, détection anti-bot
 - **Rotation de proxies** : Support de pools de proxies pour éviter la détection
-- **Pagination intelligente** : Scraping automatique de plusieurs pages d'avis
+- **Pagination robuste** : Next + fallback URL si nécessaire, scrape jusqu’à la fin
 - **Base de données** : Stockage SQLite (défaut) ou PostgreSQL
 - **Export multi-format** : CSV, Parquet, NDJSON
 - **CLI ergonomique** : Interface en ligne de commande intuitive
@@ -314,6 +314,31 @@ docker-compose down
 ```
 
 ## 📁 Structure du projet
+## 🔒 Déduplication & intégrité
+
+- Unicité en base par `review_id` (contrainte UNIQUE).
+- Priorité aux IDs Amazon (`R...`) extraits du DOM; fallback SHA1(titre+corps) si absent.
+- Déduplication en insertion par `review_id` ou par contenu `(asin, review_title, review_body, review_date)`.
+- Déduplication de secours côté UI pour l’aperçu et les exports.
+- Commande CLI de nettoyage:
+
+```bash
+python -m app.cli dedupe --dry-run
+python -m app.cli dedupe --apply
+```
+
+## ☁️ Déploiement Streamlit Cloud (notes)
+
+- Option fiable: exécuter le scraping ailleurs (VM/Render), utiliser Streamlit Cloud pour l’UI uniquement (base partagée).
+- Option expérimentale: tenter Playwright sur Cloud avec `apt.txt` et installation de Chromium (`python -m playwright install chromium`).
+
+## 🗂️ Versionning / fichiers ignorés
+
+Voir `.gitignore` pour ignorer `venv/`, `reviews.db`, `pw_profile/`, `debug/`, `htmlcov/`, `streamlit.log`.
+
+## 🧪 Fixtures
+
+Les fichiers HTML d’exemple se trouvent dans `fixtures/`. Conserver un seul exemplaire UTF‑8.
 
 ```
 amazon-reviews-scraper/
