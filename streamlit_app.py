@@ -44,39 +44,6 @@ try:
 except Exception:
     pass
 
-# État de session et helpers
-if "auth_ok" not in st.session_state:
-    st.session_state["auth_ok"] = False
-
-def _test_session_and_cache() -> bool:
-    try:
-        scraper = AmazonScraper()
-        run_async(scraper.fetcher.start_browser())
-        ctx = run_async(scraper.fetcher.create_context())
-        ok = run_async(scraper.fetcher.is_session_valid(ctx))
-        run_async(ctx.close())
-        run_async(scraper.fetcher.stop_browser())
-        st.session_state["auth_ok"] = bool(ok)
-        return bool(ok)
-    except Exception:
-        st.session_state["auth_ok"] = False
-        return False
-
-# Bandeau d'état global
-state_col1, state_col2 = st.columns([1,1])
-with state_col1:
-    if st.session_state.get("auth_ok"):
-        st.success("Session Amazon: connectée ✅")
-    else:
-        st.warning("Session Amazon: non connectée ❌ — authentifiez-vous d'abord")
-with state_col2:
-    if st.button("Re-tester la session", use_container_width=True):
-        ok_now = _test_session_and_cache()
-        if ok_now:
-            st.success("Session valide")
-        else:
-            st.info("Toujours non connectée. Utilisez l'onglet Authentification.")
-
 tab1, tab2, tab3, tab4 = st.tabs(["Scraper", "Export", "Authentification", "Guide"]) 
 
 with tab1:
@@ -111,13 +78,7 @@ with tab1:
         help="Supprime tous les avis existants pour cet ASIN avant le run.",
     )
     verbose = st.checkbox("Mode verbeux", value=False, help="Active des logs plus détaillés pendant le scraping.")
-    start = st.button(
-        "Lancer le scraping",
-        help="Démarrer le scraping selon les paramètres ci-dessus.",
-        disabled=not st.session_state.get("auth_ok", False),
-    )
-    if not st.session_state.get("auth_ok", False):
-        st.info("Authentifiez-vous dans l’onglet ‘Authentification’ puis cliquez sur ‘Re-tester la session’.")
+    start = st.button("Lancer le scraping", help="Démarrer le scraping selon les paramètres ci-dessus.")
 
     if start:
         if url:
@@ -160,8 +121,6 @@ with tab1:
                     status.update(label="Session non authentifiée. Ouvrez l’onglet Authentification d’abord.", state="error")
                     st.error("Session Amazon non valide. Veuillez vous connecter dans l’onglet Authentification puis relancer.")
                     st.stop()
-                else:
-                    st.session_state["auth_ok"] = True
                 status.update(label="Scraping en cours…", state="running")
                 run_started_at = pd.Timestamp.utcnow()
                 domain = parsed.get("domain") if url else None
@@ -464,24 +423,14 @@ with tab3:
     with coly:
         password_input = st.text_input("Mot de passe Amazon", value="", type="password")
     otp_input = st.text_input("Code 2FA (si demandé)", value="", help="Laissez vide si Amazon ne le demande pas")
-    otp_trigger = st.checkbox("J'ai reçu un code 2FA", value=False, help="Cochez si un code vient d'être envoyé (email/sms/authenticator)")
-    colh1, colh2 = st.columns([1,1])
-    with colh1:
-        do_headless_login = st.button("Se connecter (headless)", help="Tentative de connexion en arrière-plan, sans fenêtre graphique.")
-    with colh2:
-        if st.button("Tester la session", help="Vérifie si la session actuelle est authentifiée."):
-            ok = _test_session_and_cache()
-            if ok:
-                st.success("Session valide. Vous pouvez lancer le scraping.")
-            else:
-                st.info("Session non valide. Connectez-vous ci-dessous ou importez un storage_state.json.")
+    do_headless_login = st.button("Se connecter (headless)", help="Tentative de connexion en arrière-plan, sans fenêtre graphique.")
 
     if do_headless_login:
         if not email_input or not password_input:
             st.error("Renseignez email et mot de passe.")
         else:
             with st.spinner("Connexion en cours…"):
-                async def run_headless_login(timeout_sec: int = 180) -> bool:
+                async def run_headless_login(timeout_sec: int = 120) -> bool:
                     # Forcer headless en Cloud
                     old = settings.headless
                     try:
@@ -531,70 +480,6 @@ with tab3:
                                 await page.wait_for_load_state("domcontentloaded")
                         except Exception:
                             pass
-                        # Tenter de forcer l'envoi d'un code OTP (SMS/Email)
-                        try:
-                            async def _trigger_otp_send() -> None:
-                                # Choix méthode SMS/Email si disponible
-                                for sel in [
-                                    'input[name="mfaDeliveryMethod"][value="sms"]',
-                                    'input[name="mfaDeliveryMethod"][value="voice"]',
-                                    'input[name="otpDeliveryOption"][value="sms"]',
-                                    '#sms_otpradio',
-                                    '#auth-mfa-select-device-sms',
-                                    'input#auth-select-device-sms',
-                                ]:
-                                    el = await page.query_selector(sel)
-                                    if el:
-                                        try:
-                                            await el.check()
-                                        except Exception:
-                                            await el.click()
-                                        break
-                                # Liens pour basculer vers SMS/Email
-                                for lsel in [
-                                    'a#auth-use-text-messaging',
-                                    'a#auth-use-email',
-                                    'a[href*="use-text-messaging"]',
-                                    'a[href*="use-email"]',
-                                    'a#auth-get-new-code-link',
-                                ]:
-                                    link = await page.query_selector(lsel)
-                                    if link:
-                                        await link.click()
-                                        await page.wait_for_load_state("domcontentloaded")
-                                        break
-                                # Boutons d'envoi
-                                for bsel in [
-                                    '#auth-send-code',
-                                    '#auth-send-otp',
-                                    'input#auth-send-code',
-                                    'input#auth-send-otp',
-                                    'input[name="sendCode"]',
-                                    'button#auth-send-code',
-                                    'button#auth-send-otp',
-                                ]:
-                                    btn = await page.query_selector(bsel)
-                                    if btn:
-                                        await btn.click()
-                                        try:
-                                            await page.wait_for_load_state("domcontentloaded")
-                                        except Exception:
-                                            pass
-                                        break
-                                # Fallback: clic par texte
-                                try:
-                                    await page.locator("text=/Envoyer.*code|Recevoir.*code|Renvoyer.*code|Send.*code|Text.*message|SMS/i").first.click(timeout=2000)
-                                except Exception:
-                                    # Dernier recours: cliquer sur n'importe quel bouton dans le formulaire OTP
-                                    try:
-                                        await page.evaluate(
-                                            "() => {const f=document.querySelector('#auth-mfa-form')||document.body; const b=f.querySelector('button, input[type=submit]'); if(b) b.click();}"
-                                        )
-                                    except Exception:
-                                        pass
-                            await _trigger_otp_send()
-                        except Exception:
-                            pass
                         # OTP (2FA) si demandé
                         try:
                             otp_selectors = [
@@ -608,17 +493,13 @@ with tab3:
                                 otp_field = await page.query_selector(sel)
                                 if otp_field:
                                     break
-                            # Si l’UI indique qu’un code a été reçu mais aucun champ détecté, attendre et re-check
-                            if otp_trigger and not otp_field:
-                                await page.wait_for_timeout(4000)
-                                for sel in otp_selectors:
-                                    otp_field = await page.query_selector(sel)
-                                    if otp_field:
-                                        break
-                            if otp_field and otp_input:
+                            if otp_field:
+                                if not otp_input:
+                                    # Pas de code fourni par l'utilisateur
+                                    return False
                                 await otp_field.fill(otp_input)
                                 # Boutons possibles de validation
-                                for btn_sel in ['#auth-signin-button', 'input#continue', 'input[type="submit"]', 'button[type="submit"]']:
+                                for btn_sel in ['#auth-signin-button', 'input#continue', 'input[type="submit"]']:
                                     btn = await page.query_selector(btn_sel)
                                     if btn:
                                         await btn.click()
@@ -642,14 +523,6 @@ with tab3:
                                 # 3) Lien de déconnexion présent
                                 if await page.query_selector('#nav-item-signout, a[href*="/gp/flex/sign-out"]'):
                                     return True
-                                # 4) Accès à l’accueil sans redirection /ap/signin
-                                await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=settings.timeout_ms)
-                                if "/ap/signin" not in (page.url or ""):
-                                    acc2 = await page.query_selector('#nav-link-accountList')
-                                    if acc2:
-                                        t2 = (await acc2.inner_text()) or ""
-                                        if "Identifiez-vous" not in t2:
-                                            return True
                             except Exception:
                                 return False
                             return False
@@ -662,7 +535,7 @@ with tab3:
                             if await _is_logged_in():
                                 logged = True
                                 break
-                            await page.wait_for_timeout(1500)
+                            await page.wait_for_timeout(1200)
                         if logged:
                             await context.storage_state(path=session_state_path)
                         await fetcher.stop_browser()
@@ -674,12 +547,8 @@ with tab3:
                 ok2 = asyncio.run(run_headless_login())
                 if ok2:
                     st.success(f"✓ Session enregistrée: {session_state_path}")
-                    st.session_state["auth_ok"] = True
                 else:
-                    if otp_trigger and not otp_input:
-                        st.info("Code 2FA vraisemblablement envoyé. Saisissez-le et relancez la connexion.")
-                    else:
-                        st.error("Connexion non détectée (captcha/2FA possible). Réessayez ou uploadez un storage_state.")
+                    st.error("Connexion non détectée (captcha/2FA possible). Réessayez ou uploadez un storage_state.")
 
     st.markdown("---")
     st.caption("Alternative: charger un fichier de session (storage_state.json)")
@@ -690,7 +559,6 @@ with tab3:
             with open(session_state_path, "wb") as fh:
                 fh.write(data)
             st.success(f"✓ Session importée: {session_state_path}")
-            st.session_state["auth_ok"] = True
         except Exception:
             st.error("Import de session impossible.")
 
