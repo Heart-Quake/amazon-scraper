@@ -102,8 +102,26 @@ with tab1:
             live_table_placeholder = st.empty()
             live_rows = []
 
-            with st.status("Scraping en cours…", expanded=False) as status:
+            with st.status("Vérification de la session Amazon…", expanded=False) as status:
                 scraper = AmazonScraper()
+                # Étape 1: Auth obligatoire avant scraping
+                try:
+                    run_async(scraper.fetcher.start_browser())
+                    ctx = run_async(scraper.fetcher.create_context())
+                    is_ok = run_async(scraper.fetcher.is_session_valid(ctx))
+                    if not is_ok:
+                        # Si pas valide, tenter un login auto via secrets si dispo
+                        run_async(scraper.fetcher.ensure_logged_in(ctx))
+                        is_ok = run_async(scraper.fetcher.is_session_valid(ctx))
+                    run_async(ctx.close())
+                    run_async(scraper.fetcher.stop_browser())
+                except Exception:
+                    is_ok = False
+                if not is_ok:
+                    status.update(label="Session non authentifiée. Ouvrez l’onglet Authentification d’abord.", state="error")
+                    st.error("Session Amazon non valide. Veuillez vous connecter dans l’onglet Authentification puis relancer.")
+                    st.stop()
+                status.update(label="Scraping en cours…", state="running")
                 run_started_at = pd.Timestamp.utcnow()
                 domain = parsed.get("domain") if url else None
                 # Priorité à la langue choisie dans l'UI, sinon celle déduite de l'URL

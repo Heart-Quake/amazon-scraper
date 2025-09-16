@@ -241,6 +241,31 @@ class AmazonFetcher:
             await page.close()
         except Exception as e:
             logger.warning(f"Connexion Amazon échouée/ignorée: {e}")
+
+    async def is_session_valid(self, context: BrowserContext) -> bool:
+        """Vérifie si la session actuelle est authentifiée Amazon."""
+        try:
+            page = await context.new_page()
+            await page.goto("https://www.amazon.fr/gp/css/homepage.html", wait_until="domcontentloaded", timeout=settings.timeout_ms)
+            # Heuristiques: lien historique commandes ou menu compte != "Identifiez-vous"
+            if await page.query_selector('a[href*="/gp/css/order-history"]'):
+                await page.close()
+                return True
+            acc = await page.query_selector('#nav-link-accountList')
+            if acc:
+                txt = (await acc.inner_text()) or ""
+                if "Identifiez-vous" not in txt:
+                    await page.close()
+                    return True
+            # Lien de déconnexion présent
+            if await page.query_selector('#nav-item-signout, a[href*="/gp/flex/sign-out"]'):
+                await page.close()
+                return True
+            await page.close()
+            return False
+        except Exception as e:
+            logger.debug(f"is_session_valid: {e}")
+            return False
     
     @retry(
         stop=stop_after_attempt(3),
