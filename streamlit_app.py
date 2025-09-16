@@ -28,8 +28,8 @@ setup_logging("INFO")
 try:
     import shutil
     if shutil.which("playwright") and not shutil.which("chromium"):
-        # Essayer une installation silencieuse (sera ignorée si déjà présent)
-        subprocess.run(["python", "-m", "playwright", "install", "chromium", "--with-deps"], check=False)
+        # Installer uniquement les binaires navigateurs (les deps système sont gérées via packages.txt)
+        subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=False)
 except Exception:
     pass
 
