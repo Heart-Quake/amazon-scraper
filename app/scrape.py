@@ -72,6 +72,14 @@ class AmazonScraper:
         
         try:
             async with self.fetcher:
+                # Vérifier/établir la connexion avant de commencer le scraping
+                try:
+                    context = await self.fetcher.create_context()
+                    # Si storage_state non présent, ensure_logged_in() se chargera via creds
+                    await self.fetcher.ensure_logged_in(context)
+                    await context.close()
+                except Exception as e:
+                    logger.warning(f"Vérification de connexion ignorée/échouée (on continue): {e}")
                 page = None
                 for page_num in range(1, max_pages + 1):
                     try:
