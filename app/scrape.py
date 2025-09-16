@@ -1,6 +1,7 @@
 """Module principal de scraping avec pagination et persistance."""
 
 import logging
+import importlib
 import time
 from typing import List, Optional, Callable
 from datetime import datetime
@@ -25,8 +26,9 @@ class AmazonScraper:
         self.fetcher = AmazonFetcher()
         # Import paresseux pour éviter les erreurs d'import au démarrage de Streamlit
         try:
-            from app.parser import ReviewParser  # import local
-            self.parser = ReviewParser()
+            parser_module = importlib.import_module("app.parser")
+            ReviewParserCls = getattr(parser_module, "ReviewParser")
+            self.parser = ReviewParserCls()
         except Exception as e:
             logger.error(f"Impossible d'importer/initialiser ReviewParser: {e}")
             raise
