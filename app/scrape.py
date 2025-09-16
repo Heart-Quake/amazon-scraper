@@ -27,7 +27,13 @@ class AmazonScraper:
         # Import paresseux pour éviter les erreurs d'import au démarrage de Streamlit
         try:
             parser_module = importlib.import_module("app.parser")
-            ReviewParserCls = getattr(parser_module, "ReviewParser")
+            ReviewParserCls = getattr(parser_module, "ReviewParser", None)
+            if ReviewParserCls is None:
+                # Essayer un reload (module partiellement initialisé)
+                parser_module = importlib.reload(parser_module)
+                ReviewParserCls = getattr(parser_module, "ReviewParser", None)
+            if ReviewParserCls is None:
+                raise AttributeError("app.parser.ReviewParser introuvable")
             self.parser = ReviewParserCls()
         except Exception as e:
             logger.error(f"Impossible d'importer/initialiser ReviewParser: {e}")
