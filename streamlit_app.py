@@ -409,6 +409,7 @@ with tab3:
         email_input = st.text_input("Email Amazon", value="", placeholder="prenom.nom@mail.com")
     with coly:
         password_input = st.text_input("Mot de passe Amazon", value="", type="password")
+    otp_input = st.text_input("Code 2FA (si demandé)", value="", help="Laissez vide si Amazon ne le demande pas")
     do_headless_login = st.button("Se connecter (headless)", help="Tentative de connexion en arrière-plan, sans fenêtre graphique.")
 
     if do_headless_login:
@@ -464,6 +465,33 @@ with tab3:
                             if submit:
                                 await submit.click()
                                 await page.wait_for_load_state("domcontentloaded")
+                        except Exception:
+                            pass
+                        # OTP (2FA) si demandé
+                        try:
+                            otp_selectors = [
+                                '#auth-mfa-otpcode',
+                                'input[name="otpCode"]',
+                                'input[name="code"]',
+                                'input#otc-input',
+                            ]
+                            otp_field = None
+                            for sel in otp_selectors:
+                                otp_field = await page.query_selector(sel)
+                                if otp_field:
+                                    break
+                            if otp_field:
+                                if not otp_input:
+                                    # Pas de code fourni par l'utilisateur
+                                    return False
+                                await otp_field.fill(otp_input)
+                                # Boutons possibles de validation
+                                for btn_sel in ['#auth-signin-button', 'input#continue', 'input[type="submit"]']:
+                                    btn = await page.query_selector(btn_sel)
+                                    if btn:
+                                        await btn.click()
+                                        await page.wait_for_load_state("domcontentloaded")
+                                        break
                         except Exception:
                             pass
                         # Attente d'état connecté simple
