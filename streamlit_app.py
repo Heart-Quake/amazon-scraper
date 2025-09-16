@@ -4,6 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 import pandas as pd
+import subprocess
 import streamlit as st
 
 from app.scrape import AmazonScraper
@@ -22,6 +23,15 @@ st.title("🛒 Amazon Reviews Scraper")
 st.caption("Utilisez avec modération et respect des CGU Amazon.")
 
 setup_logging("INFO")
+
+# Option: installation auto de Chromium sur Streamlit Cloud si absent
+try:
+    import shutil
+    if shutil.which("playwright") and not shutil.which("chromium"):
+        # Essayer une installation silencieuse (sera ignorée si déjà présent)
+        subprocess.run(["python", "-m", "playwright", "install", "chromium", "--with-deps"], check=False)
+except Exception:
+    pass
 
 tab1, tab2, tab3, tab4 = st.tabs(["Scraper", "Export", "Authentification", "Guide"]) 
 
