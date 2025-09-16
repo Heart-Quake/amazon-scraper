@@ -540,6 +540,8 @@ with tab3:
                                     'input[name="mfaDeliveryMethod"][value="voice"]',
                                     'input[name="otpDeliveryOption"][value="sms"]',
                                     '#sms_otpradio',
+                                    '#auth-mfa-select-device-sms',
+                                    'input#auth-select-device-sms',
                                 ]:
                                     el = await page.query_selector(sel)
                                     if el:
@@ -554,6 +556,7 @@ with tab3:
                                     'a#auth-use-email',
                                     'a[href*="use-text-messaging"]',
                                     'a[href*="use-email"]',
+                                    'a#auth-get-new-code-link',
                                 ]:
                                     link = await page.query_selector(lsel)
                                     if link:
@@ -578,6 +581,17 @@ with tab3:
                                         except Exception:
                                             pass
                                         break
+                                # Fallback: clic par texte
+                                try:
+                                    await page.locator("text=/Envoyer.*code|Recevoir.*code|Renvoyer.*code|Send.*code|Text.*message|SMS/i").first.click(timeout=2000)
+                                except Exception:
+                                    # Dernier recours: cliquer sur n'importe quel bouton dans le formulaire OTP
+                                    try:
+                                        await page.evaluate(
+                                            "() => {const f=document.querySelector('#auth-mfa-form')||document.body; const b=f.querySelector('button, input[type=submit]'); if(b) b.click();}"
+                                        )
+                                    except Exception:
+                                        pass
                             await _trigger_otp_send()
                         except Exception:
                             pass
@@ -662,7 +676,10 @@ with tab3:
                     st.success(f"✓ Session enregistrée: {session_state_path}")
                     st.session_state["auth_ok"] = True
                 else:
-                    st.error("Connexion non détectée (captcha/2FA possible). Réessayez ou uploadez un storage_state.")
+                    if otp_trigger and not otp_input:
+                        st.info("Code 2FA vraisemblablement envoyé. Saisissez-le et relancez la connexion.")
+                    else:
+                        st.error("Connexion non détectée (captcha/2FA possible). Réessayez ou uploadez un storage_state.")
 
     st.markdown("---")
     st.caption("Alternative: charger un fichier de session (storage_state.json)")
