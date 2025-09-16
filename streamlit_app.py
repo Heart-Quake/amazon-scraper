@@ -39,9 +39,8 @@ except Exception:
 # Installation Playwright browsers (Chromium) à chaque démarrage (idempotent)
 # Utilise le bon interpréteur pour éviter les problèmes de venv
 try:
-    # Installer navigateurs via l'interpréteur courant et ne pas utiliser /usr/local/bin/python
+    # Installer les navigateurs (chromium). Ne pas appeler install-deps (sudo interdit sur Cloud)
     subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
-    subprocess.run([sys.executable, "-m", "playwright", "install-deps"], check=False)
 except Exception:
     pass
 
