@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from app.db import get_db, create_tables
 from app.fetch import AmazonFetcher
 from app.models import Review
-from app.parser import ReviewParser
 from app.selectors import ReviewSelectors
 from app.utils import async_random_sleep
 
@@ -24,7 +23,13 @@ class AmazonScraper:
     def __init__(self):
         """Initialise le scraper avec les composants nécessaires."""
         self.fetcher = AmazonFetcher()
-        self.parser = ReviewParser()
+        # Import paresseux pour éviter les erreurs d'import au démarrage de Streamlit
+        try:
+            from app.parser import ReviewParser  # import local
+            self.parser = ReviewParser()
+        except Exception as e:
+            logger.error(f"Impossible d'importer/initialiser ReviewParser: {e}")
+            raise
         self.selectors = ReviewSelectors()
         
         # Création des tables si nécessaire
