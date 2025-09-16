@@ -133,13 +133,23 @@ setup_logging("INFO")
 # Détection simple du runtime Cloud (pas d'affichage disponible)
 IS_CLOUD = bool(os.environ.get("STREAMLIT_RUNTIME") or os.environ.get("STREAMLIT_SERVER_PORT"))
 
-# Injecter quelques secrets Streamlit dans l'environnement si présents (Cloud)
-try:
-    for key in ["AMZ_EMAIL", "AMZ_PASSWORD", "PROXY_POOL", "HEADLESS", "USE_PERSISTENT_PROFILE"]:
-        if key in st.secrets:
-            os.environ[key] = str(st.secrets[key])
-except Exception:
-    pass
+# Injecter secrets uniquement si disponibles (évite l'alerte "No secrets found" en local)
+def _inject_secrets_if_any() -> None:
+    try:
+        secrets_files = [Path(".streamlit/secrets.toml"), Path.home() / ".streamlit/secrets.toml"]
+        is_cloud = bool(os.environ.get("STREAMLIT_RUNTIME"))
+        if is_cloud or any(p.exists() for p in secrets_files):
+            for key in ["AMZ_EMAIL", "AMZ_PASSWORD", "PROXY_POOL", "HEADLESS", "USE_PERSISTENT_PROFILE"]:
+                try:
+                    val = st.secrets.get(key)  # type: ignore[attr-defined]
+                except Exception:
+                    val = None
+                if val is not None:
+                    os.environ[key] = str(val)
+    except Exception:
+        pass
+
+_inject_secrets_if_any()
 
 # Installation Playwright browsers (Chromium) à chaque démarrage (idempotent)
 # Utilise le bon interpréteur pour éviter les problèmes de venv
