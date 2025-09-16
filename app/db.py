@@ -1,17 +1,24 @@
 """Configuration de la base de données avec SQLAlchemy."""
 
 from sqlalchemy import create_engine, Index
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 from app.config import settings
 
 # Création du moteur de base de données
-engine = create_engine(
+connect_args = {}
+if settings.db_url.startswith("sqlite"):
+    # Streamlit Cloud exécute dans un environnement multi-threads: nécessaire pour SQLite
+    connect_args = {"check_same_thread": False}
+
+engine: Engine = create_engine(
     settings.db_url,
     echo=False,  # Mettre à True pour debug SQL
     pool_pre_ping=True,
     pool_recycle=300,
+    connect_args=connect_args,
 )
 
 # Factory pour les sessions
