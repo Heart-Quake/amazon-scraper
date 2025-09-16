@@ -19,109 +19,7 @@ def run_async(coro):
     return asyncio.run(coro)
 
 
-async def login_headless(email: str, password: str, otp: str = "", timeout_sec: int = 120) -> bool:
-    """Connexion Amazon headless réutilisable (Cloud-friendly)."""
-    from app.config import settings as _settings
-    fetcher = AmazonFetcher()
-    old = _settings.headless
-    try:
-        _settings.headless = True
-        await fetcher.start_browser()
-        context = await fetcher.create_context()
-        page = await context.new_page()
-
-        signin_url = (
-            "https://www.amazon.fr/ap/signin?_encoding=UTF8"
-            "&openid.assoc_handle=frflex"
-            "&openid.return_to=https%3A%2F%2Fwww.amazon.fr%2F%3Fref_%3Dnav_signin"
-            "&openid.mode=checkid_setup&ignoreAuthState=1"
-            "&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0"
-            "&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select"
-            "&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select"
-        )
-        await page.goto(signin_url, wait_until="domcontentloaded", timeout=_settings.timeout_ms)
-
-        # Cookies
-        for sel in (
-            'input#sp-cc-accept',
-            'input[data-cel-widget="sp-cc-accept"]',
-            'input[name="accept"]',
-        ):
-            try:
-                btn = await page.query_selector(sel)
-                if btn:
-                    await btn.click()
-                    break
-            except Exception:
-                pass
-
-        # Email puis mot de passe
-        try:
-            await page.fill('#ap_email', email)
-            cont = await page.query_selector('#continue')
-            if cont:
-                await cont.click()
-                await page.wait_for_load_state("domcontentloaded")
-        except Exception:
-            pass
-        try:
-            await page.fill('#ap_password', password)
-            submit = await page.query_selector('#signInSubmit')
-            if submit:
-                await submit.click()
-                await page.wait_for_load_state("domcontentloaded")
-        except Exception:
-            pass
-
-        # OTP si demandé
-        try:
-            otp_field = None
-            for sel in ['#auth-mfa-otpcode', 'input[name="otpCode"]', 'input#otc-input']:
-                otp_field = await page.query_selector(sel)
-                if otp_field:
-                    break
-            if otp_field:
-                if not otp:
-                    return False
-                await otp_field.fill(otp)
-                for btn_sel in ['#auth-signin-button', 'input#continue', 'input[type="submit"]']:
-                    btn = await page.query_selector(btn_sel)
-                    if btn:
-                        await btn.click()
-                        await page.wait_for_load_state("domcontentloaded")
-                        break
-        except Exception:
-            pass
-
-        # Vérifier connecté
-        async def _is_logged_in() -> bool:
-            try:
-                await page.goto("https://www.amazon.fr/gp/css/homepage.html", wait_until="domcontentloaded", timeout=_settings.timeout_ms)
-                if await page.query_selector('a[href*="/gp/css/order-history"]'):
-                    return True
-                acc = await page.query_selector('#nav-link-accountList')
-                if acc:
-                    txt = (await acc.inner_text()) or ""
-                    if "Identifiez-vous" not in txt:
-                        return True
-            except Exception:
-                return False
-            return False
-
-        import time as _t
-        start = _t.time()
-        while _t.time() - start < timeout_sec:
-            if await _is_logged_in():
-                await context.storage_state(path=_settings.storage_state_path)
-                await fetcher.stop_browser()
-                _settings.headless = old
-                return True
-            await page.wait_for_timeout(1200)
-        await fetcher.stop_browser()
-        _settings.headless = old
-        return False
-    finally:
-        _settings.headless = old
+# (Supprimé) Flux de connexion headless – retour à l’authentification via fenêtre Chromium
 
 
 st.set_page_config(page_title="Amazon Reviews Scraper", layout="wide")
@@ -166,50 +64,12 @@ with tab1:
     st.subheader("Scraper un ASIN")
     st.caption("Renseignez un ASIN ou une URL Amazon. Si l’URL contient l’ASIN, il sera détecté automatiquement.")
 
-    # Statut de session et connexion inline
+    # Statut simple de session
     session_state_path = getattr(settings, "storage_state_path", "./storage_state.json")
-    session_ok = os.path.exists(session_state_path)
-    col_s1, col_s2 = st.columns([3, 2])
-    with col_s1:
-        if session_ok:
-            ts = Path(session_state_path).stat().st_mtime if Path(session_state_path).exists() else None
-            st.success(f"Session Amazon active • {session_state_path}")
-        else:
-            st.warning("Aucune session Amazon active. Connectez-vous ci-dessous pour éviter les redirections login/captcha.")
-    with col_s2:
-        test = st.button("Tester la session", help="Ouvre la page compte en tâche de fond pour vérifier l'état.")
-        if test:
-            # Test simple: présence du fichier suffit ici; test réel est effectué au premier fetch.
-            st.info("Le fichier de session sera utilisé au prochain lancement.")
-
-    with st.expander("Connexion rapide (headless)", expanded=not session_ok):
-        c1, c2, c3 = st.columns([2,2,1])
-        with c1:
-            inline_email = st.text_input("Email Amazon", value=os.environ.get("AMZ_EMAIL", ""), key="inline_email")
-        with c2:
-            inline_password = st.text_input("Mot de passe Amazon", value=os.environ.get("AMZ_PASSWORD", ""), type="password", key="inline_password")
-        with c3:
-            inline_otp = st.text_input("OTP", value="", help="2FA si demandé", key="inline_otp")
-        colb1, colb2 = st.columns([1,1])
-        with colb1:
-            if st.button("Se connecter maintenant", key="inline_login_btn"):
-                with st.spinner("Connexion en cours…"):
-                    ok_login = run_async(login_headless(inline_email, inline_password, inline_otp))
-                if ok_login:
-                    st.success(f"✓ Session enregistrée: {session_state_path}")
-                else:
-                    st.error("Connexion non détectée. Vérifiez vos identifiants/OTP, ou utilisez l’onglet Authentification.")
-        with colb2:
-            st.file_uploader("Importer storage_state.json", type=["json"], key="inline_state_upload")
-            up = st.session_state.get("inline_state_upload")
-            if up is not None:
-                try:
-                    data = up.read()
-                    with open(session_state_path, "wb") as fh:
-                        fh.write(data)
-                    st.success(f"✓ Session importée: {session_state_path}")
-                except Exception:
-                    st.error("Import impossible.")
+    if os.path.exists(session_state_path):
+        st.success(f"Session Amazon active • {session_state_path}")
+    else:
+        st.info("Pas de session Amazon. Ouvrez l’onglet Authentification pour vous connecter (fenêtre Chromium).")
     asin = st.text_input(
         "ASIN",
         placeholder="B08N5WRWNW",
@@ -543,167 +403,36 @@ with tab2:
 
 with tab3:
     st.subheader("Authentification Amazon")
-    st.caption("Ouvrez une fenêtre pour vous connecter, la session sera enregistrée.")
-    with st.expander("Comment ça marche ?"):
-        st.markdown(
-            "- Une fenêtre Amazon s’ouvre avec Playwright.\n"
-            "- Connectez-vous normalement (email, mot de passe, 2FA si nécessaire).\n"
-            "- À la détection de session valide, l’état est sauvegardé pour les prochains scrapings."
-        )
-
+    st.caption("Ouvre une fenêtre Chromium pour te connecter. La session sera enregistrée.")
     session_state_path = getattr(settings, "storage_state_path", "./storage_state.json")
     if os.path.exists(session_state_path):
         st.success(f"Session trouvée: {session_state_path}")
     else:
         st.info("Aucune session enregistrée.")
-
-    # Mode Cloud: proposer une connexion headless via formulaire (pas de fenêtre graphique)
-    st.markdown("---")
-    st.caption("Connexion headless (compatible Cloud)")
-    colx, coly = st.columns(2)
-    with colx:
-        email_input = st.text_input("Email Amazon", value="", placeholder="prenom.nom@mail.com")
-    with coly:
-        password_input = st.text_input("Mot de passe Amazon", value="", type="password")
-    otp_input = st.text_input("Code 2FA (si demandé)", value="", help="Laissez vide si Amazon ne le demande pas")
-    do_headless_login = st.button("Se connecter (headless)", help="Tentative de connexion en arrière-plan, sans fenêtre graphique.")
-
-    if do_headless_login:
-        if not email_input or not password_input:
-            st.error("Renseignez email et mot de passe.")
-        else:
-            with st.spinner("Connexion en cours…"):
-                async def run_headless_login(timeout_sec: int = 120) -> bool:
-                    # Forcer headless en Cloud
-                    old = settings.headless
-                    try:
-                        settings.headless = True
-                        fetcher = AmazonFetcher()
-                        await fetcher.start_browser()
-                        context = await fetcher.create_context()
-                        page = await context.new_page()
-                        signin_url = (
-                            "https://www.amazon.fr/ap/signin?_encoding=UTF8"
-                            "&openid.assoc_handle=frflex"
-                            "&openid.return_to=https%3A%2F%2Fwww.amazon.fr%2F%3Fref_%3Dnav_signin"
-                            "&openid.mode=checkid_setup&ignoreAuthState=1"
-                            "&openid.ns=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0"
-                            "&openid.claimed_id=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select"
-                            "&openid.identity=http%3A%2F%2Fspecs.openid.net%2Fauth%2F2.0%2Fidentifier_select"
-                        )
-                        await page.goto(signin_url, wait_until="domcontentloaded", timeout=settings.timeout_ms)
-                        try:
-                            # Cookies
-                            for sel in [
-                                'input#sp-cc-accept',
-                                'input[data-cel-widget="sp-cc-accept"]',
-                                'input[name="accept"]',
-                            ]:
-                                btn = await page.query_selector(sel)
-                                if btn:
-                                    await btn.click()
-                                    break
-                        except Exception:
-                            pass
-                        # Email -> Continuer
-                        try:
-                            await page.fill('#ap_email', email_input)
-                            cont = await page.query_selector('#continue')
-                            if cont:
-                                await cont.click()
-                                await page.wait_for_load_state("domcontentloaded")
-                        except Exception:
-                            pass
-                        # Password -> Sign in
-                        try:
-                            await page.fill('#ap_password', password_input)
-                            submit = await page.query_selector('#signInSubmit')
-                            if submit:
-                                await submit.click()
-                                await page.wait_for_load_state("domcontentloaded")
-                        except Exception:
-                            pass
-                        # OTP (2FA) si demandé
-                        try:
-                            otp_selectors = [
-                                '#auth-mfa-otpcode',
-                                'input[name="otpCode"]',
-                                'input[name="code"]',
-                                'input#otc-input',
-                            ]
-                            otp_field = None
-                            for sel in otp_selectors:
-                                otp_field = await page.query_selector(sel)
-                                if otp_field:
-                                    break
-                            if otp_field:
-                                if not otp_input:
-                                    # Pas de code fourni par l'utilisateur
-                                    return False
-                                await otp_field.fill(otp_input)
-                                # Boutons possibles de validation
-                                for btn_sel in ['#auth-signin-button', 'input#continue', 'input[type="submit"]']:
-                                    btn = await page.query_selector(btn_sel)
-                                    if btn:
-                                        await btn.click()
-                                        await page.wait_for_load_state("domcontentloaded")
-                                        break
-                        except Exception:
-                            pass
-                        # Vérifier l'état connecté via plusieurs heuristiques
-                        async def _is_logged_in() -> bool:
-                            try:
-                                # 1) Page compte: présence d'éléments du hub compte
-                                await page.goto("https://www.amazon.fr/gp/css/homepage.html", wait_until="domcontentloaded", timeout=settings.timeout_ms)
-                                if await page.query_selector('a[href*="/gp/css/order-history"]'):
-                                    return True
-                                # 2) Barre de nav: texte différent d'"Identifiez-vous"
-                                acc = await page.query_selector('#nav-link-accountList')
-                                if acc:
-                                    txt = (await acc.inner_text()) or ""
-                                    if "Identifiez-vous" not in txt:
-                                        return True
-                                # 3) Lien de déconnexion présent
-                                if await page.query_selector('#nav-item-signout, a[href*="/gp/flex/sign-out"]'):
-                                    return True
-                            except Exception:
-                                return False
-                            return False
-
-                        # Attente borne avec boucles courtes
-                        import time as _t
-                        start = _t.time()
-                        logged = False
-                        while _t.time() - start < timeout_sec:
-                            if await _is_logged_in():
-                                logged = True
-                                break
-                            await page.wait_for_timeout(1200)
-                        if logged:
-                            await context.storage_state(path=session_state_path)
-                        await fetcher.stop_browser()
-                        settings.headless = old
-                        return logged
-                    finally:
-                        settings.headless = old
-
-                ok2 = asyncio.run(run_headless_login())
-                if ok2:
-                    st.success(f"✓ Session enregistrée: {session_state_path}")
-                else:
-                    st.error("Connexion non détectée (captcha/2FA possible). Réessayez ou uploadez un storage_state.")
-
-    st.markdown("---")
-    st.caption("Alternative: charger un fichier de session (storage_state.json)")
-    uploaded = st.file_uploader("Fichier storage_state.json", type=["json"], accept_multiple_files=False)
-    if uploaded is not None:
+    c1, c2 = st.columns([1,1])
+    with c1:
+        do_open = st.button("Ouvrir une fenêtre Chromium")
+    with c2:
+        do_clear = st.button("Supprimer la session")
+    if do_open:
+        async def open_window():
+            fetcher = AmazonFetcher()
+            await fetcher.start_browser()
+            context = await fetcher.create_context()
+            page = await context.new_page()
+            await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=settings.timeout_ms)
+            st.info("Fenêtre ouverte par le serveur; connectez-vous et revenez ici pour exporter la session.")
         try:
-            data = uploaded.read()
-            with open(session_state_path, "wb") as fh:
-                fh.write(data)
-            st.success(f"✓ Session importée: {session_state_path}")
+            run_async(open_window())
         except Exception:
-            st.error("Import de session impossible.")
+            st.warning("Impossible d’ouvrir une fenêtre visible sur cet environnement.")
+    if do_clear:
+        try:
+            if os.path.exists(session_state_path):
+                os.remove(session_state_path)
+            st.success("Session supprimée.")
+        except Exception:
+            st.error("Suppression impossible.")
 
 with tab4:
     st.subheader("Guide d’utilisation")
