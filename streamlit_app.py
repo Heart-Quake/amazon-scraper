@@ -28,6 +28,14 @@ setup_logging("INFO")
 # Détection simple du runtime Cloud (pas d'affichage disponible)
 IS_CLOUD = bool(os.environ.get("STREAMLIT_RUNTIME") or os.environ.get("STREAMLIT_SERVER_PORT"))
 
+# Injecter quelques secrets Streamlit dans l'environnement si présents (Cloud)
+try:
+    for key in ["AMZ_EMAIL", "AMZ_PASSWORD", "PROXY_POOL", "HEADLESS", "USE_PERSISTENT_PROFILE"]:
+        if key in st.secrets:
+            os.environ[key] = str(st.secrets[key])
+except Exception:
+    pass
+
 # Installation Playwright browsers (Chromium) à chaque démarrage (idempotent)
 # Utilise le bon interpréteur pour éviter les problèmes de venv
 try:
