@@ -4,6 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 import pandas as pd
+import sys
 import subprocess
 import streamlit as st
 
@@ -24,12 +25,16 @@ st.caption("Utilisez avec modération et respect des CGU Amazon.")
 
 setup_logging("INFO")
 
-# Option: installation auto de Chromium sur Streamlit Cloud si absent
+# Installation Playwright browsers (Chromium) à chaque démarrage (idempotent)
+# Utilise le bon interpréteur pour éviter les problèmes de venv
 try:
-    import shutil
-    if shutil.which("playwright") and not shutil.which("chromium"):
-        # Installer uniquement les binaires navigateurs (les deps système sont gérées via packages.txt)
-        subprocess.run(["python", "-m", "playwright", "install", "chromium"], check=False)
+    subprocess.run([
+        sys.executable,
+        "-m",
+        "playwright",
+        "install",
+        "chromium",
+    ], check=False)
 except Exception:
     pass
 
