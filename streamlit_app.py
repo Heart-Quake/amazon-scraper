@@ -417,7 +417,7 @@ with tab3:
             st.error("Renseignez email et mot de passe.")
         else:
             with st.spinner("Connexion en cours…"):
-                async def run_headless_login(timeout_sec: int = 300) -> bool:
+                async def run_headless_login(timeout_sec: int = 120) -> bool:
                     # Forcer headless en Cloud
                     old = settings.headless
                     try:
@@ -494,23 +494,35 @@ with tab3:
                                         break
                         except Exception:
                             pass
-                        # Attente d'état connecté simple
-                        import time as _t
-                        start = _t.time()
-                        logged = False
-                        while _t.time() - start < timeout_sec:
+                        # Vérifier l'état connecté via plusieurs heuristiques
+                        async def _is_logged_in() -> bool:
                             try:
-                                await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=settings.timeout_ms)
+                                # 1) Page compte: présence d'éléments du hub compte
+                                await page.goto("https://www.amazon.fr/gp/css/homepage.html", wait_until="domcontentloaded", timeout=settings.timeout_ms)
+                                if await page.query_selector('a[href*="/gp/css/order-history"]'):
+                                    return True
+                                # 2) Barre de nav: texte différent d'"Identifiez-vous"
                                 acc = await page.query_selector('#nav-link-accountList')
                                 if acc:
                                     txt = (await acc.inner_text()) or ""
                                     if "Identifiez-vous" not in txt:
-                                        logged = True
-                                        break
-                                await page.wait_for_timeout(1500)
+                                        return True
+                                # 3) Lien de déconnexion présent
+                                if await page.query_selector('#nav-item-signout, a[href*="/gp/flex/sign-out"]'):
+                                    return True
                             except Exception:
-                                await page.wait_for_timeout(1500)
-                                continue
+                                return False
+                            return False
+
+                        # Attente borne avec boucles courtes
+                        import time as _t
+                        start = _t.time()
+                        logged = False
+                        while _t.time() - start < timeout_sec:
+                            if await _is_logged_in():
+                                logged = True
+                                break
+                            await page.wait_for_timeout(1200)
                         if logged:
                             await context.storage_state(path=session_state_path)
                         await fetcher.stop_browser()
