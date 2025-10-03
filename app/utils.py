@@ -159,6 +159,7 @@ def generate_review_url(
     sort: Optional[str] = None,
     domain: Optional[str] = None,
     reviewer_type: str = "all_reviews",
+    star_filter: Optional[str] = None,
 ) -> str:
     """
     Génère l'URL des avis pour un ASIN donné.
@@ -175,7 +176,7 @@ def generate_review_url(
     params = {
         "reviewerType": reviewer_type,
         "sortBy": sort or settings.sort,
-        "filterByStar": "all_stars",
+        "filterByStar": star_filter or "all_stars",
     }
     # Ajouter le filtre de langue seulement si fourni explicitement
     if language:
@@ -313,7 +314,7 @@ def detect_error_page(page_content: str) -> bool:
         True si une erreur est détectée, False sinon
     """
     if not page_content:
-        return True
+        return False
     
     content_lower = page_content.lower()
     
@@ -323,6 +324,10 @@ def detect_error_page(page_content: str) -> bool:
         "page non trouvée",
         "product not available",
         "produit non disponible",
+        "no reviews available",
+        "aucun avis disponible",
+        "error 404",
+        "erreur 500",
         "dogs of amazon",
         "désolé! quelque chose s'est mal passé",
         "sorry! something went wrong",
@@ -332,16 +337,20 @@ def detect_error_page(page_content: str) -> bool:
 
 
 def detect_login_page(page_content: str) -> bool:
-    """Détecte une page de connexion Amazon (sign-in)."""
+    """Détecte de façon plus stricte une page de connexion Amazon.
+    On requiert des marqueurs de formulaire de login (champs email/mot de passe) pour éviter les faux positifs
+    présents sur la home (liens '/ap/signin').
+    """
     if not page_content:
         return False
     c = page_content.lower()
-    indicators = [
-        "connexion amazon",
-        "sign-in",
-        "authportal",
-        "/ap/signin",
-        "identifiez-vous",
-        "connectez-vous",
+    hard_indicators = [
+        'id="ap_email"',
+        'name="email"',
+        'id="ap_password"',
+        'name="password"',
+        'authportal-center-section',
+        'ap_signin_form',
     ]
-    return any(s in c for s in indicators)
+    # Au moins un indicateur fort doit être présent
+    return any(s in c for s in hard_indicators)

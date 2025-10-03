@@ -31,8 +31,6 @@ class AmazonFetcher:
         self.ua_pool = UserAgentPool()
         self.browser: Optional[Browser] = None
         self.playwright: Optional[Playwright] = None
-        # Indique si self.browser est un BrowserContext persistant
-        self._is_persistent_context: bool = False
     
     async def start_browser(self) -> None:
         """Démarre le navigateur Playwright."""
@@ -53,34 +51,19 @@ class AmazonFetcher:
             if settings.use_persistent_profile:
                 import os
                 os.makedirs(settings.user_data_dir, exist_ok=True)
-                try:
-                    # Mode profil persistant (plus robuste pour conserver la session)
-                    self.browser = await self.playwright.chromium.launch_persistent_context(
-                        settings.user_data_dir,
-                        headless=settings.headless,
-                        args=browser_args,
-                        locale="fr-FR",
-                        timezone_id="Europe/Paris",
-                        viewport={"width": 1280, "height": 900},
-                    )
-                    self._is_persistent_context = True
-                except Exception as e:
-                    # Fallback automatique: profils verrouillés/corrompus ou instance existante
-                    logger.warning(
-                        f"Échec du lancement persistant ({e}). Bascule en mode non persistant avec storage_state si disponible."
-                    )
-                    self.browser = await self.playwright.chromium.launch(
-                        headless=settings.headless,
-                        args=browser_args,
-                    )
-                    self._is_persistent_context = False
+                self.browser = await self.playwright.chromium.launch_persistent_context(
+                    settings.user_data_dir,
+                    headless=settings.headless,
+                    args=browser_args,
+                    locale="fr-FR",
+                    timezone_id="Europe/Paris",
+                    viewport={"width": 1280, "height": 900},
+                )
             else:
-                # Mode non persistant standard
                 self.browser = await self.playwright.chromium.launch(
                     headless=settings.headless,
                     args=browser_args,
                 )
-                self._is_persistent_context = False
             
             logger.info("Navigateur démarré avec succès")
             
@@ -118,7 +101,7 @@ class AmazonFetcher:
             raise RuntimeError("Le navigateur n'est pas démarré")
         
         # Si on est en mode profil persistant, self.browser est déjà un context
-        if self._is_persistent_context:
+        if settings.use_persistent_profile:
             context = self.browser  # type: ignore
         else:
             # Configuration du contexte normal
@@ -126,7 +109,8 @@ class AmazonFetcher:
                 "user_agent": self.ua_pool.get_random_ua(),
                 "locale": "fr-FR",
                 "timezone_id": "Europe/Paris",
-                "viewport": {"width": 1920, "height": 1080},
+                # Viewport réduit pour accélérer le rendu
+                "viewport": {"width": 1200, "height": 800},
             }
             if proxy:
                 context_options["proxy"] = {"server": proxy}
@@ -147,9 +131,14 @@ class AmazonFetcher:
         try:
             await context.route("**/*", lambda route: route.continue_())
             block_ext = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".woff", ".woff2", ".ttf")
+            block_hosts = ("amazon-adsystem", "doubleclick", "googletagmanager", "google-analytics")
             async def route_handler(route):
                 req = route.request
                 url = req.url.lower()
+                if req.resource_type in {"image", "media", "font"}:
+                    return await route.abort()
+                if any(h in url for h in block_hosts):
+                    return await route.abort()
                 if any(url.endswith(ext) for ext in block_ext):
                     return await route.abort()
                 return await route.continue_()
@@ -188,7 +177,7 @@ class AmazonFetcher:
         except Exception:
             pass
 
-        # Cookies régionaux FR pour réduire les redirections
+        # Cookies régionaux par défaut (FR) - les appels ciblés pourront les ajuster dynamiquement
         try:
             await context.add_cookies([
                 {"name": "lc-main", "value": "fr_FR", "domain": ".amazon.fr", "path": "/"},
@@ -234,6 +223,112 @@ class AmazonFetcher:
         except Exception as e:
             logger.warning(f"Connexion Amazon échouée/ignorée: {e}")
     
+    async def check_session_valid(self) -> bool:
+        """Retourne True si la session Amazon semble authentifiée (storage_state.json actif)."""
+        try:
+            await self.start_browser()
+            context = await self.create_context()
+            page = await context.new_page()
+            await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=settings.timeout_ms)
+            # Accepter cookies si présent (best-effort)
+            try:
+                cookie_selectors = [
+                    'input#sp-cc-accept',
+                    'input[name="accept"]',
+                    'button[name="accept"]',
+                    'input[data-cel-widget="sp-cc-accept"]',
+                ]
+                for sel in cookie_selectors:
+                    btn = await page.query_selector(sel)
+                    if btn:
+                        await btn.click()
+                        break
+            except Exception:
+                pass
+            content = await page.content()
+            if detect_login_page(content):
+                await page.close()
+                await self.stop_browser()
+                return False
+            acc = await page.query_selector('#nav-link-accountList')
+            ok = True
+            if acc:
+                txt = (await acc.inner_text()) or ""
+                if "Identifiez-vous" in txt or "Sign in" in txt:
+                    ok = False
+            await page.close()
+            await self.stop_browser()
+            return ok
+        except Exception as e:
+            logger.warning(f"check_session_valid: erreur {e}")
+            try:
+                await self.stop_browser()
+            except Exception:
+                pass
+            return False
+
+    async def check_session_valid_for(self, domain: str, language: Optional[str] = None) -> bool:
+        """Valide la session pour un domaine/langue spécifiques.
+        Ouvre la home du domaine et vérifie l'absence d'écran de login.
+        """
+        try:
+            await self.start_browser()
+            context = await self.create_context()
+            # Ajuster Accept-Language au besoin
+            try:
+                lang = (language or "fr_FR").replace("_", "-")
+                await context.set_extra_http_headers({"Accept-Language": lang})
+            except Exception:
+                pass
+            page = await context.new_page()
+            home_url = f"https://{domain}/"
+            await page.goto(home_url, wait_until="domcontentloaded", timeout=settings.timeout_ms)
+            # Accepter cookies si présent
+            try:
+                cookie_selectors = [
+                    'input#sp-cc-accept',
+                    'input[name="accept"]',
+                    'button[name="accept"]',
+                    'input[data-cel-widget="sp-cc-accept"]',
+                ]
+                for sel in cookie_selectors:
+                    btn = await page.query_selector(sel)
+                    if btn:
+                        await btn.click()
+                        break
+            except Exception:
+                pass
+            content = await page.content()
+            if detect_login_page(content):
+                await page.close()
+                await self.stop_browser()
+                return False
+            nav = await page.query_selector('#nav-link-accountList')
+            ok = True
+            if nav:
+                txt = (await nav.inner_text()) or ""
+                # marqueurs d'invite à se connecter pour locales courantes
+                bad_markers = [
+                    "Identifiez-vous",  # fr
+                    "Sign in",         # en
+                    "Accedi",          # it
+                    "Anmelden",        # de
+                    "Inloggen",        # nl
+                    "Identifícate",    # es (varie selon layout)
+                ]
+                if any(m in txt for m in bad_markers):
+                    ok = False
+            await page.close()
+            await self.stop_browser()
+            return ok
+        except Exception as e:
+            logger.warning(f"check_session_valid_for: erreur {e}")
+            try:
+                await self.stop_browser()
+            except Exception:
+                pass
+            return False
+    
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2, min=4, max=10),
@@ -249,6 +344,7 @@ class AmazonFetcher:
         language: Optional[str] = None,
         sort: Optional[str] = None,
         reviewer_type: Optional[str] = None,
+        star_filter: Optional[str] = None,
     ) -> Page:
         """
         Récupère une page d'avis avec gestion des erreurs et retry.
@@ -282,6 +378,39 @@ class AmazonFetcher:
             # Warm-up: ouvrir d'abord la page produit pour initialiser cookies/région
             try:
                 product_url = generate_product_url(asin, domain=domain)
+                # Ajuster Accept-Language et cookies régionaux selon domain/language
+                try:
+                    hdr_lang = (language or "fr_FR").replace("_", "-")
+                    await page.set_extra_http_headers({"Accept-Language": hdr_lang})
+                except Exception:
+                    pass
+                try:
+                    # Construire domaine cookie ".amazon.xx"
+                    cookie_domain = None
+                    if domain:
+                        d = domain
+                        if d.startswith("www."):
+                            d = d[4:]
+                        cookie_domain = f".{d}"
+                    # Mapping langue/devise par domaine
+                    lang_map = {
+                        "amazon.fr": ("fr_FR", "EUR"),
+                        "amazon.es": ("es_ES", "EUR"),
+                        "amazon.it": ("it_IT", "EUR"),
+                        "amazon.nl": ("nl_NL", "EUR"),
+                        "amazon.de": ("de_DE", "EUR"),
+                        "amazon.co.uk": ("en_GB", "GBP"),
+                    }
+                    if cookie_domain:
+                        key = cookie_domain.lstrip('.')
+                        lc, cur = lang_map.get(key, (language or "fr_FR", "EUR"))
+                        lc = (language or lc)
+                        await context.add_cookies([
+                            {"name": "lc-main", "value": lc, "domain": cookie_domain, "path": "/"},
+                            {"name": "i18n-prefs", "value": cur, "domain": cookie_domain, "path": "/"},
+                        ])
+                except Exception:
+                    pass
                 await page.goto(product_url, wait_until="domcontentloaded", timeout=settings.timeout_ms)
                 # cliquer "Voir tous les avis" si présent
                 view_all_sel = 'a[data-hook="see-all-reviews-link-foot"], a[href*="/product-reviews/"]'
@@ -309,6 +438,7 @@ class AmazonFetcher:
                 sort=sort,
                 domain=domain,
                 reviewer_type=reviewer_type or "all_reviews",
+                star_filter=star_filter,
             )
             logger.info(f"Récupération de la page {page_number} pour ASIN {asin}")
             logger.debug(f"URL: {url}")
@@ -317,7 +447,8 @@ class AmazonFetcher:
             await page.set_extra_http_headers({"Referer": product_url})
             response = await page.goto(
                 url,
-                wait_until="networkidle",
+                # domcontentloaded est plus rapide et suffisant avec un wait sur sélecteur ensuite
+                wait_until="domcontentloaded",
                 timeout=settings.timeout_ms,
             )
 
@@ -357,9 +488,10 @@ class AmazonFetcher:
                 logger.warning("Détection d'éléments anti-bot, retry avec nouveau proxy/UA")
                 raise RuntimeError("Éléments anti-bot détectés")
             
-            # Vérification d'erreur/login (plus permissive)
+            # Vérification d'erreur/login: stopper net pour éviter boucles
             if detect_login_page(content):
-                logger.warning("Page de connexion détectée - besoin d'ajuster UA/proxy/langue")
+                logger.warning("Page de connexion détectée - arrêt de la tentative pour régénérer l'état/session")
+                raise RuntimeError("LoginPageDetected")
             elif detect_error_page(content):
                 logger.warning("Page potentiellement d'erreur détectée")
             
@@ -384,6 +516,7 @@ class AmazonFetcher:
         language: Optional[str] = None,
         sort: Optional[str] = None,
         reviewer_type: Optional[str] = None,
+        star_filter: Optional[str] = None,
     ) -> Optional[Page]:
         """
         Récupère une page d'avis avec rotation de proxy et gestion d'erreurs.
@@ -420,6 +553,7 @@ class AmazonFetcher:
                     language=language,
                     sort=sort,
                     reviewer_type=reviewer_type,
+                    star_filter=star_filter,
                 )
                 return page
                 

@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     amz_email: Optional[str] = Field(None, env="AMZ_EMAIL")
     amz_password: Optional[str] = Field(None, env="AMZ_PASSWORD")
 
-    # Profil persistant (Option A)
-    use_persistent_profile: bool = Field(True, env="USE_PERSISTENT_PROFILE")
+    # Profil persistant (Option A) - par défaut désactivé pour stabilité (usage storage_state)
+    use_persistent_profile: bool = Field(False, env="USE_PERSISTENT_PROFILE")
     user_data_dir: str = Field("./pw_profile", env="USER_DATA_DIR")
     
     # User agents pool

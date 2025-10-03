@@ -34,6 +34,9 @@ from app.utils import setup_logging, validate_asin, parse_reviews_url, parse_ama
 from app.config import settings
 from app.fetch import AmazonFetcher
 from app.utils import detect_login_page
+from app.db import get_db
+from app.models import Review
+from app.normalize import strip_rating_from_title
 
 # Configuration de l'application Typer
 app = typer.Typer(
@@ -47,84 +50,6 @@ console = Console()
 
 
 @app.command()
-def dedupe(
-    dry_run: bool = typer.Option(True, "--dry-run/--apply", help="Afficher ce qui serait supprimé sans toucher à la base"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Mode verbeux"),
-) -> None:
-    """Déduplique la table des avis en conservant un seul enregistrement par contenu équivalent.
-
-    Règle: doublon si (asin, review_title, review_body, review_date) identiques (review_date optionnelle).
-    Les entrées avec un review_id Amazon (R...) sont privilégiées par rapport aux review_id générés.
-    """
-    from app.db import get_db
-    from app.models import Review
-
-    log_level = "DEBUG" if verbose else "INFO"
-    setup_logging(log_level)
-
-    db_gen = get_db()
-    db = next(db_gen)
-    try:
-        # Récupérer toutes les reviews, triées pour garder en priorité celles avec review_id Amazon (R...)
-        reviews = (
-            db.query(Review)
-            .order_by(Review.asin, Review.review_title, Review.review_body, Review.review_date.desc(), Review.review_id.desc())
-            .all()
-        )
-
-        seen = {}
-        to_delete_ids = []
-
-        for r in reviews:
-            key = (
-                (r.asin or "").strip(),
-                (r.review_title or "").strip(),
-                (r.review_body or "").strip(),
-                (r.review_date or "").strip(),
-            )
-
-            current_is_amz = (r.review_id or "").startswith("R")
-            if key not in seen:
-                seen[key] = r
-                continue
-
-            kept = seen[key]
-            kept_is_amz = (kept.review_id or "").startswith("R")
-
-            # Choisir lequel garder: prioriser ID Amazon, sinon le plus ancien (created_at)
-            keep_current = False
-            if current_is_amz and not kept_is_amz:
-                keep_current = True
-            elif current_is_amz == kept_is_amz and r.created_at and kept.created_at and r.created_at < kept.created_at:
-                keep_current = True
-
-            if keep_current:
-                to_delete_ids.append(kept.id)
-                seen[key] = r
-            else:
-                to_delete_ids.append(r.id)
-
-        if not to_delete_ids:
-            console.print("[green]✓ Aucun doublon détecté[/green]")
-            return
-
-        console.print(f"[yellow]Doublons détectés: {len(to_delete_ids)} lignes[/yellow]")
-        if dry_run:
-            console.print("[blue]Mode dry-run: aucune suppression effectuée. Relancez avec --apply pour nettoyer.[/blue]")
-            return
-
-        # Suppression
-        deleted = db.query(Review).filter(Review.id.in_(to_delete_ids)).delete(synchronize_session=False)
-        db.commit()
-        console.print(f"[green]✓ Suppression effectuée: {deleted} lignes supprimées[/green]")
-
-    except Exception as e:
-        db.rollback()
-        console.print(f"[red]Erreur lors de la déduplication: {e}[/red]")
-        raise typer.Exit(1)
-    finally:
-        db.close()
-
 def crawl(
     asin: str = typer.Argument(..., help="ASIN du produit à scraper"),
     max_pages: Optional[int] = typer.Option(None, "--max-pages", "-p", help="Nombre maximum de pages à scraper"),
@@ -184,6 +109,74 @@ def crawl(
                 console.print(f"  - {error}")
     
     asyncio.run(run_scraping())
+
+
+@app.command()
+def crawl_urls(
+    file: Path = typer.Argument(..., help="Fichier contenant des URLs Amazon (une par ligne)"),
+    max_pages: Optional[int] = typer.Option(None, "--max-pages", "-p", help="Nombre de pages max par tranche"),
+    full_pagination: bool = typer.Option(False, "--full", help="Parcourir jusqu'au bout"),
+    stars: str = typer.Option("all", "--stars", help="all|five|four|three|two|one"),
+    persist: bool = typer.Option(True, "--persist/--no-persist", help="Sauvegarder en base"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Mode verbeux"),
+) -> None:
+    """Scrape un batch d'URLs (produit ou avis) depuis un fichier."""
+    log_level = "DEBUG" if verbose else "INFO"
+    setup_logging(log_level)
+    console.print("[blue]Scraping batch d'URLs[/blue]")
+
+    if not file.exists():
+        console.print(f"[red]Fichier introuvable: {file}[/red]")
+        raise typer.Exit(1)
+
+    urls = [u.strip() for u in file.read_text(encoding="utf-8").splitlines() if u.strip() and not u.strip().startswith('#')]
+    if not urls:
+        console.print("[red]Aucune URL valide[/red]")
+        raise typer.Exit(1)
+
+    star_map = {
+        "all": None,
+        "five": "five_star",
+        "four": "four_star",
+        "three": "three_star",
+        "two": "two_star",
+        "one": "one_star",
+    }
+    star_filter = star_map.get(stars, None)
+
+    async def run_batch():
+        scraper = AmazonScraper()
+        all_stats = []
+        for url in urls:
+            p = parse_amazon_url(url)
+            if not p or not p.get("asin"):
+                console.print(f"[yellow]URL ignorée: {url}[/yellow]")
+                continue
+            asin = p["asin"]
+            domain = p.get("domain")
+            language = p.get("language")
+            if star_filter is None:
+                seq = ["five_star","four_star","three_star","two_star","one_star"]
+            else:
+                seq = [star_filter]
+            for sf in seq:
+                console.print(f"ASIN {asin} – tranche {sf}")
+                s = await scraper.scrape_asin(
+                    asin,
+                    max_pages,
+                    domain=domain,
+                    language=language,
+                    full_pagination=full_pagination,
+                    persist=persist,
+                    star_filter=sf,
+                )
+                all_stats.append(s)
+        return all_stats
+
+    results = asyncio.run(run_batch())
+    # Récap
+    total_reviews = sum([s.get("total_reviews",0) for s in results])
+    console.print(f"[green]✓ Terminé: {total_reviews} avis cumulés sur {len(results)} exécutions[/green]")
 
 
 @app.command()
@@ -441,7 +434,16 @@ def auth_login(
         try:
             fetcher = AmazonFetcher()
             await fetcher.start_browser()
-            context = await fetcher.create_context()
+            # Pendant l'auth, éviter de charger un storage_state existant
+            if fetcher.browser:
+                context = await fetcher.browser.new_context(
+                    user_agent=fetcher.ua_pool.get_random_ua(),
+                    locale="fr-FR",
+                    timezone_id="Europe/Paris",
+                    viewport={"width": 1280, "height": 900},
+                )  # type: ignore
+            else:
+                context = await fetcher.create_context()
             page = await context.new_page()
             
             # 1) Aller à l'accueil FR
@@ -502,11 +504,52 @@ def auth_login(
                 await context.storage_state(path=settings.storage_state_path)
                 console.print(f"[green]✓ Session enregistrée: {settings.storage_state_path}[/green]")
 
+            await context.close()
             await fetcher.stop_browser()
         finally:
             settings.headless = old_headless
 
     asyncio.run(run_login())
+
+
+@app.command()
+def migrate_clean_titles(
+    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Limiter le nombre de lignes à traiter (debug)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Mode verbeux"),
+) -> None:
+    """Nettoie les titres en base pour retirer la notation (ex: '5,0 sur 5 étoiles')."""
+    log_level = "DEBUG" if verbose else "INFO"
+    setup_logging(log_level)
+
+    console.print("[blue]Migration: nettoyage des titres (strip notation)[/blue]")
+
+    db_gen = get_db()
+    db = next(db_gen)
+    updated = 0
+    scanned = 0
+    try:
+        query = db.query(Review)
+        if limit:
+            query = query.limit(limit)
+        for review in query.all():
+            scanned += 1
+            old_title = review.review_title or ""
+            new_title = strip_rating_from_title(old_title)
+            if new_title != old_title:
+                review.review_title = new_title
+                updated += 1
+                if verbose:
+                    console.print(f"[grey50]{review.id}[/grey50] '{old_title}' -> '{new_title}'")
+                if updated % 500 == 0:
+                    db.commit()
+        db.commit()
+        console.print(f"[green]✓ Migration terminée[/green] - lignes scannées: {scanned}, titres modifiés: {updated}")
+    except Exception as e:
+        db.rollback()
+        console.print(f"[red]Erreur migration: {e}[/red]")
+        raise
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

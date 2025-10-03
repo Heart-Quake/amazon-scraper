@@ -3,6 +3,7 @@
 import re
 from datetime import datetime
 from typing import Optional, Tuple
+import hashlib
 
 
 def normalize_rating(rating_text: str) -> Optional[float]:
@@ -23,19 +24,23 @@ def normalize_rating(rating_text: str) -> Optional[float]:
         r"(\d+)[.,](\d+)\s*sur\s*5",  # "4.0 sur 5"
         r"(\d+)[.,](\d+)",  # "4.0" ou "4,0"
         r"(\d+)\s*sur\s*5",  # "4 sur 5"
-        r"(\d+)",  # "4"
+        r"^(?:[1-5](?:[.,]0)?)$",  # entier simple 1..5 ou x.0
     ]
     
     for pattern in patterns:
         match = re.search(pattern, rating_text)
         if match:
-            if len(match.groups()) == 2:
+            if match.lastindex and match.lastindex == 2:
                 # Format avec décimales
                 whole, decimal = match.groups()
                 rating = float(f"{whole}.{decimal}")
             else:
-                # Format entier
-                rating = float(match.group(1))
+                # Format entier (pattern 3) ou entier simple (pattern 4)
+                # Extraire le premier nombre trouvé
+                num = re.search(r"\d+(?:[.,]\d+)?", rating_text)
+                if not num:
+                    continue
+                rating = float(num.group(0).replace(",", "."))
             
             # Validation de la plage
             if 1.0 <= rating <= 5.0:
@@ -66,9 +71,10 @@ def normalize_date_fr(date_text: str) -> Optional[str]:
     }
     
     # Patterns de dates françaises
+    # Supporte aussi "1er" pour le jour 1
     patterns = [
-        r"le\s+(\d{1,2})\s+(\w+)\s+(\d{4})",  # "le 15 janvier 2024"
-        r"(\d{1,2})\s+(\w+)\s+(\d{4})",  # "15 janvier 2024"
+        r"le\s+(\d{1,2}|1er)\s+(\w+)\s+(\d{4})",  # "le 15 janvier 2024" ou "le 1er février 2024"
+        r"(\d{1,2}|1er)\s+(\w+)\s+(\d{4})",  # "15 janvier 2024" ou "1er février 2024"
         r"(\d{1,2})/(\d{1,2})/(\d{4})",  # "15/01/2024"
         r"(\d{4})-(\d{1,2})-(\d{1,2})",  # "2024-01-15"
     ]
@@ -82,22 +88,33 @@ def normalize_date_fr(date_text: str) -> Optional[str]:
                 if pattern.endswith(r"/(\d{4})"):  # Format DD/MM/YYYY
                     day, month, year = groups
                     try:
-                        return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-                    except ValueError:
+                        day_i = int(day)
+                        month_i = int(month)
+                        year_i = int(year)
+                        if 1 <= day_i <= 31 and 1 <= month_i <= 12:
+                            return f"{year_i}-{str(month_i).zfill(2)}-{str(day_i).zfill(2)}"
+                    except Exception:
                         continue
                 elif pattern.endswith(r"-(\d{1,2})"):  # Format YYYY-MM-DD
                     year, month, day = groups
                     try:
-                        return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-                    except ValueError:
+                        day_i = int(day)
+                        month_i = int(month)
+                        year_i = int(year)
+                        if 1 <= day_i <= 31 and 1 <= month_i <= 12:
+                            return f"{year_i}-{str(month_i).zfill(2)}-{str(day_i).zfill(2)}"
+                    except Exception:
                         continue
                 else:  # Format avec mois en français
-                    day, month_fr, year = groups
+                    day_raw, month_fr, year = groups
+                    day = "1" if str(day_raw).lower() == "1er" else str(day_raw)
                     month = months_fr.get(month_fr.lower())
                     if month:
                         try:
-                            return f"{year}-{month}-{day.zfill(2)}"
-                        except ValueError:
+                            day_i = int(day)
+                            if 1 <= day_i <= 31:
+                                return f"{year}-{month}-{str(day_i).zfill(2)}"
+                        except Exception:
                             continue
     
     return None
@@ -148,14 +165,23 @@ def normalize_verified_purchase(badge_text: str) -> bool:
     if not badge_text:
         return False
     
+    t = badge_text.lower()
+    # Négations explicites
+    negative = [
+        "pas vérifié",
+        "not verified",
+    ]
+    if any(n in t for n in negative):
+        return False
     verified_indicators = [
         "achat vérifié",
         "verified purchase",
+        " vérifié",
+        " verified",
         "vérifié",
         "verified",
     ]
-    
-    return any(indicator in badge_text.lower() for indicator in verified_indicators)
+    return any(ind in t for ind in verified_indicators)
 
 
 def extract_review_id_from_url(url: str) -> Optional[str]:
@@ -190,8 +216,37 @@ def clean_text(text: str) -> str:
     if not text:
         return ""
     
-    # Supprime les espaces multiples et les caractères de contrôle
+    # Remplace les caractères de contrôle par des espaces, puis compacte les espaces
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", text)
     text = re.sub(r"\s+", " ", text.strip())
-    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
-    
     return text
+
+
+def generate_canonical_review_id(title: Optional[str], body: Optional[str]) -> str:
+    """Génère un ID déterministe SHA-1 à partir du titre + corps normalisés.
+    Retourne une chaîne du type "sha1_<hex>".
+    """
+    t = clean_text(title or "")
+    b = clean_text(body or "")
+    blob = (t + "|" + b).encode("utf-8")
+    digest = hashlib.sha1(blob).hexdigest()
+    return f"sha1_{digest}"
+
+
+def strip_rating_from_title(text: str) -> str:
+    """Retire les mentions de notation (ex: "5,0 sur 5 étoiles", "5 out of 5 stars",
+    ainsi que les symboles ★/☆) d'un titre d'avis.
+    """
+    if not text:
+        return ""
+    t = text
+    # Retirer préfixes FR/EN du type "5,0 sur 5 étoiles" / "5 out of 5 stars"
+    patterns = [
+        r"^\s*\d+[\.,]?\d*\s*sur\s*5\s*étoiles?\s*[-–—]*\s*",
+        r"^\s*\d+[\.,]?\d*\s*out\s*of\s*5\s*stars?\s*[-–—]*\s*",
+    ]
+    for pat in patterns:
+        t = re.sub(pat, "", t, flags=re.IGNORECASE)
+    # Retirer les étoiles unicode éventuelles en tête
+    t = re.sub(r"^[★☆\s]+", "", t)
+    return clean_text(t)
