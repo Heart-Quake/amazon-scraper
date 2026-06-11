@@ -42,6 +42,8 @@ class Review(Base):
     helpful_votes = Column(Integer, default=0, nullable=False)
     reviewer_name = Column(String(255), nullable=True)
     variant = Column(String(255), nullable=True)
+    domain = Column(String(64), nullable=True)
+    canonical_product_url = Column(String(255), nullable=True)
     
     # Timestamps
     created_at = Column(DateTime, default=func.now(), nullable=False)
@@ -75,6 +77,8 @@ class Review(Base):
             "helpful_votes": self.helpful_votes,
             "reviewer_name": self.reviewer_name,
             "variant": self.variant,
+            "domain": self.domain,
+            "canonical_product_url": self.canonical_product_url,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

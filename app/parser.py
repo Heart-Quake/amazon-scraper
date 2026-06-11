@@ -11,6 +11,7 @@ from app.normalize import (
     clean_text,
     extract_review_id_from_url,
     normalize_date_fr,
+    normalize_date,
     normalize_helpful_votes,
     normalize_rating,
     normalize_verified_purchase,
@@ -95,11 +96,11 @@ class ReviewParser:
             rating_text = await rating_element.inner_text()
             data["rating"] = normalize_rating(rating_text)
         
-        # Date
+        # Date (multi-locale)
         date_element = await review_element.query_selector(self.selectors["date"])
         if date_element:
             date_text = await date_element.inner_text()
-            data["review_date"] = normalize_date_fr(date_text)
+            data["review_date"] = normalize_date(date_text) or normalize_date_fr(date_text)
         
         # Achat vérifié
         verified_element = await review_element.query_selector(self.selectors["verified"])
@@ -297,7 +298,7 @@ class ReviewParser:
                             "review_title": strip_rating_from_title((r.get('title') if not synthetic else '') or ''),
                             "review_body": clean_text((r.get('body') if not synthetic else '') or ''),
                             "rating": normalize_rating((r.get('rating') if not synthetic else '') or ''),
-                            "review_date": normalize_date_fr((r.get('date') if not synthetic else '') or ''),
+                            "review_date": normalize_date((r.get('date') if not synthetic else '') or '') or normalize_date_fr((r.get('date') if not synthetic else '') or ''),
                             "verified_purchase": normalize_verified_purchase((r.get('verified') if not synthetic else '') or ''),
                             "helpful_votes": normalize_helpful_votes((r.get('helpful') if not synthetic else '') or ''),
                             "reviewer_name": clean_text((r.get('reviewer') if not synthetic else '') or ''),

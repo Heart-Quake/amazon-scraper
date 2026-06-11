@@ -120,6 +120,102 @@ def normalize_date_fr(date_text: str) -> Optional[str]:
     return None
 
 
+def normalize_date(date_text: str) -> Optional[str]:
+    """Normalise une date multi‑locale (FR/EN/ES/IT/DE/NL) en YYYY-MM-DD.
+    Essaie plusieurs stratégies simples et retombe sur des formats numériques.
+    """
+    if not date_text:
+        return None
+    t = date_text.strip()
+    # 1) FR
+    d = normalize_date_fr(t)
+    if d:
+        return d
+    # 2) EN (e.g., "January 15, 2024" or "15 January 2024")
+    months_en = {
+        "january": "01", "february": "02", "march": "03", "april": "04", "may": "05",
+        "june": "06", "july": "07", "august": "08", "september": "09", "october": "10",
+        "november": "11", "december": "12",
+    }
+    # "January 15, 2024"
+    m = re.search(r"(\w+)\s+(\d{1,2}),\s*(\d{4})", t, flags=re.IGNORECASE)
+    if m:
+        month = months_en.get(m.group(1).lower())
+        if month:
+            day = int(m.group(2))
+            year = int(m.group(3))
+            if 1 <= day <= 31:
+                return f"{year}-{month}-{str(day).zfill(2)}"
+    # "15 January 2024"
+    m = re.search(r"(\d{1,2})\s+(\w+)\s+(\d{4})", t, flags=re.IGNORECASE)
+    if m:
+        month = months_en.get(m.group(2).lower())
+        if month:
+            day = int(m.group(1))
+            year = int(m.group(3))
+            if 1 <= day <= 31:
+                return f"{year}-{month}-{str(day).zfill(2)}"
+    # 3) ES (e.g., "15 de enero de 2024")
+    months_es = {
+        "enero": "01", "febrero": "02", "marzo": "03", "abril": "04", "mayo": "05",
+        "junio": "06", "julio": "07", "agosto": "08", "septiembre": "09", "setiembre": "09",
+        "octubre": "10", "noviembre": "11", "diciembre": "12",
+    }
+    m = re.search(r"(\d{1,2})\s+de\s+(\w+)\s+de\s+(\d{4})", t, flags=re.IGNORECASE)
+    if m:
+        month = months_es.get(m.group(2).lower())
+        if month:
+            day = int(m.group(1)); year = int(m.group(3))
+            if 1 <= day <= 31:
+                return f"{year}-{month}-{str(day).zfill(2)}"
+    # 4) IT ("15 gennaio 2024")
+    months_it = {
+        "gennaio": "01", "febbraio": "02", "marzo": "03", "aprile": "04", "maggio": "05",
+        "giugno": "06", "luglio": "07", "agosto": "08", "settembre": "09", "ottobre": "10",
+        "novembre": "11", "dicembre": "12",
+    }
+    m = re.search(r"(\d{1,2})\s+(\w+)\s+(\d{4})", t, flags=re.IGNORECASE)
+    if m:
+        month = months_it.get(m.group(2).lower())
+        if month:
+            day = int(m.group(1)); year = int(m.group(3))
+            if 1 <= day <= 31:
+                return f"{year}-{month}-{str(day).zfill(2)}"
+    # 5) DE ("15. Januar 2024")
+    months_de = {
+        "januar": "01", "februar": "02", "märz": "03", "maerz": "03", "april": "04", "mai": "05",
+        "juni": "06", "juli": "07", "august": "08", "september": "09", "oktober": "10",
+        "november": "11", "dezember": "12",
+    }
+    m = re.search(r"(\d{1,2})[\.|\s]+(\w+)\s+(\d{4})", t, flags=re.IGNORECASE)
+    if m:
+        month = months_de.get(m.group(2).lower())
+        if month:
+            day = int(m.group(1)); year = int(m.group(3))
+            if 1 <= day <= 31:
+                return f"{year}-{month}-{str(day).zfill(2)}"
+    # 6) NL ("15 januari 2024")
+    months_nl = {
+        "januari": "01", "februari": "02", "maart": "03", "april": "04", "mei": "05",
+        "juni": "06", "juli": "07", "augustus": "08", "september": "09", "oktober": "10",
+        "november": "11", "december": "12",
+    }
+    m = re.search(r"(\d{1,2})\s+(\w+)\s+(\d{4})", t, flags=re.IGNORECASE)
+    if m:
+        month = months_nl.get(m.group(2).lower())
+        if month:
+            day = int(m.group(1)); year = int(m.group(3))
+            if 1 <= day <= 31:
+                return f"{year}-{month}-{str(day).zfill(2)}"
+    # 7) Formats numériques fréquents: DD.MM.YYYY, DD-MM-YYYY
+    m = re.search(r"(\d{1,2})[\./-](\d{1,2})[\./-](\d{4})", t)
+    if m:
+        day = int(m.group(1)); month = int(m.group(2)); year = int(m.group(3))
+        if 1 <= day <= 31 and 1 <= month <= 12:
+            return f"{year}-{str(month).zfill(2)}-{str(day).zfill(2)}"
+    return None
+
+
 def normalize_helpful_votes(votes_text: str) -> int:
     """
     Normalise le texte de votes utiles en nombre entier.

@@ -203,6 +203,15 @@ class AmazonScraper:
                         # Ajout de l'ASIN aux avis
                         for review in reviews:
                             review["asin"] = asin
+                            # Enrichir domaine et URL canonique produit pour l'export final
+                            try:
+                                from app.utils import generate_product_url
+                                if domain:
+                                    review["domain"] = domain
+                                if asin and domain:
+                                    review["canonical_product_url"] = generate_product_url(asin, domain=domain)
+                            except Exception:
+                                pass
                         
                         # Sauvegarde en base (ou mode éphémère)
                         if persist:
@@ -298,6 +307,10 @@ class AmazonScraper:
                 'ul.a-pagination li.a-last a',
                 'a[aria-label*="Suivant"]',
                 'a[aria-label*="Next"]',
+                'a[aria-label*="Volgende"]',  # Dutch
+                'a[aria-label*="Siguiente"]',  # Spanish
+                'a[aria-label*="Avanti"]',  # Italian
+                'a[aria-label*="Weiter"]',  # German
                 'a[data-hook="pagination-bar-next"]',
                 'ul.a-pagination a[href*="pageNumber="]',
             ]
@@ -332,6 +345,10 @@ class AmazonScraper:
                 'ul.a-pagination li.a-last a',
                 'a[aria-label*="Suivant"]',
                 'a[aria-label*="Next"]',
+                'a[aria-label*="Volgende"]',  # Dutch
+                'a[aria-label*="Siguiente"]',  # Spanish
+                'a[aria-label*="Avanti"]',  # Italian
+                'a[aria-label*="Weiter"]',  # German
                 'a[data-hook="pagination-bar-next"]',
                 'ul.a-pagination a[href*="pageNumber="]',
             ]
