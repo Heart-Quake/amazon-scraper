@@ -7,6 +7,7 @@ import uuid
 import pandas as pd
 import streamlit as st
 
+from automation_seo_theme import apply_automation_seo_theme
 from app.scrape import AmazonScraper
 from app.utils import (
     setup_logging,
@@ -26,6 +27,7 @@ def run_async(coro):
 
 
 st.set_page_config(page_title="Amazon Reviews Scraper", layout="wide")
+apply_automation_seo_theme()
 st.title("🛒 Amazon Reviews Scraper")
 st.caption("Utilisez avec modération et respect des CGU Amazon.")
 
@@ -795,4 +797,3 @@ with tab4:
             file_name="export_dedup.csv",
             mime="text/csv",
         )
-
