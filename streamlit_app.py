@@ -28,8 +28,16 @@ def run_async(coro):
 
 st.set_page_config(page_title="Amazon Reviews Scraper", layout="wide")
 apply_automation_seo_theme()
-st.title("🛒 Amazon Reviews Scraper")
-st.caption("Utilisez avec modération et respect des CGU Amazon.")
+st.markdown(
+    """
+    <section class="tool-hero">
+        <div class="tool-kicker">Review scraping</div>
+        <h1 class="tool-title">Amazon Reviews Scraper</h1>
+        <p class="tool-lead">Collecte les avis Amazon, controle la qualite des donnees et prepare des exports propres pour analyse.</p>
+    </section>
+    """,
+    unsafe_allow_html=True,
+)
 
 setup_logging("INFO")
 
