@@ -1,13 +1,14 @@
 """Mini interface Streamlit pour lancer le scraping, s'authentifier et exporter."""
 
 import asyncio
+import importlib
 import os
 from pathlib import Path
 import uuid
 import pandas as pd
 import streamlit as st
 
-from automation_seo_theme import apply_automation_seo_theme
+import automation_seo_theme
 from app.scrape import AmazonScraper
 from app.utils import (
     setup_logging,
@@ -19,6 +20,9 @@ from app.utils import (
 from app.config import settings
 from app.fetch import AmazonFetcher
 from app.normalize import clean_text
+
+automation_seo_theme = importlib.reload(automation_seo_theme)
+apply_automation_seo_theme = automation_seo_theme.apply_automation_seo_theme
 
 
 def run_async(coro):
